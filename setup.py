@@ -14,9 +14,7 @@ setup(
         'Programming Language :: Python :: 3.12.2',
     ],
     install_requires=[
-        'lightsim2grid==0.9'
+        'lightsim2grid==0.9',
+        'Grid2Op @ git+https://github.com/Grid2op/grid2op.git@dev_multiagent',
     ],
-    dependency_links=[
-        'git+https://github.com/rte-france/grid2op.git@v1.10.4'  # last grid2op release with duplicated spaces fix
-    ]
 )
