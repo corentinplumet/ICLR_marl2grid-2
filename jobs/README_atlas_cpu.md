@@ -32,9 +32,23 @@ cd ICLR_marl2grid-2
 
 If you are not using git, copy the folder with `scp` or `rsync`.
 
-## 3. Create the conda environment once
+## 3. Create the Python environment once
 
 Do this once on Atlas, not inside every training job.
+
+If you use a repo-local virtualenv:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install .
+```
+
+The PBS script will activate `.venv` automatically if it exists.
+
+If you prefer conda:
 
 ```bash
 module avail conda

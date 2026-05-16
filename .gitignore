@@ -1,0 +1,28 @@
+# Python environments
+.venv/
+venv/
+env/
+.env
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local experiment artifacts
+logs/
+checkpoint/
+wandb/
+runs/
+outputs/
+data_grid2op/
+
+# Local editor / OS files
+.DS_Store
+.vscode/
+.idea/
