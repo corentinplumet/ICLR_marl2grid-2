@@ -1,0 +1,110 @@
+#!/bin/bash
+#PBS -P CHANGE_ME_PROJECT
+#PBS -N marl2grid_cpu
+#PBS -q parallel
+#PBS -l select=1:ncpus=24:mem=48gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -V
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+JOB_ID="${PBS_JOBID:-local}"
+NCPUS="$(wc -l < "${PBS_NODEFILE}")"
+LOG_DIR="$PBS_O_WORKDIR/logs"
+STDOUT_LOG="$LOG_DIR/stdout.$JOB_ID"
+STDERR_LOG="$LOG_DIR/stderr.$JOB_ID"
+
+mkdir -p "$LOG_DIR" checkpoint
+
+# Keep CPU oversubscription under control. The training code creates one
+# process per vector environment, so each worker should use one BLAS/Torch thread.
+export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
+export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-1}"
+
+# Load the Atlas module system if it exists. The exact conda module name can vary
+# by cluster image, so the block falls back to a conda install in your home dir.
+source /etc/profile.d/rec_modules.sh 2>/dev/null || true
+if command -v module >/dev/null 2>&1; then
+    module load miniconda/4.12 2>/dev/null \
+        || module load miniconda/4.9 2>/dev/null \
+        || module load miniconda3 2>/dev/null \
+        || module load anaconda3 2>/dev/null \
+        || module load conda 2>/dev/null \
+        || true
+fi
+
+if command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/anaconda3/etc/profile.d/conda.sh"
+else
+    echo "Could not find conda. Load the right Atlas conda module or install Miniconda." >&2
+    exit 1
+fi
+
+conda activate "${CONDA_ENV:-marl2grid}"
+
+# Defaults are chosen to fit Atlas parallel24: 20 env workers plus room for the
+# main process, evaluation, logging, and OS overhead. For this repo, N_ENVS must
+# divide MAPPO's n_steps/eval_freq, QPLEX's train_freq/eval_freq, or LAGRMAPPO's
+# n_steps/eval_freq.
+ALG="${ALG:-MAPPO}"
+ENV_ID="${ENV_ID:-bus14}"
+SEED="${SEED:-0}"
+N_ENVS="${N_ENVS:-20}"
+TORCH_THREADS="${TORCH_THREADS:-1}"
+TOTAL_TIMESTEPS="${TOTAL_TIMESTEPS:-25000000}"
+TRACK="${TRACK:-False}"
+WANDB_MODE_ARG="${WANDB_MODE:-offline}"
+CHECKPOINT="${CHECKPOINT:-True}"
+
+echo "PBS job id: $JOB_ID"
+echo "Working directory: $PBS_O_WORKDIR"
+echo "Allocated CPU slots: $NCPUS"
+echo "Conda env: ${CONDA_ENV:-marl2grid}"
+echo "Training: alg=$ALG env=$ENV_ID seed=$SEED n_envs=$N_ENVS torch_threads=$TORCH_THREADS"
+echo "Logs: $STDOUT_LOG and $STDERR_LOG"
+
+python - <<'PY'
+import os
+import sys
+import torch
+
+print("Python:", sys.version.replace("\n", " "))
+print("Torch:", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
+print("OMP_NUM_THREADS:", os.environ.get("OMP_NUM_THREADS"))
+PY
+
+TRAIN_CMD=(
+    python -u main.py
+    --env-id "$ENV_ID"
+    --alg "$ALG"
+    --seed "$SEED"
+    --n-envs "$N_ENVS"
+    --n-threads "$TORCH_THREADS"
+    --cuda False
+    --checkpoint "$CHECKPOINT"
+    --track "$TRACK"
+    --wandb-mode "$WANDB_MODE_ARG"
+    --total-timesteps "$TOTAL_TIMESTEPS"
+)
+
+if [ -n "${EXTRA_ARGS:-}" ]; then
+    # Use EXTRA_ARGS for simple extra flags, for example:
+    # EXTRA_ARGS="--difficulty 1 --use-heuristic False"
+    # shellcheck disable=SC2206
+    EXTRA_ARGS_ARRAY=(${EXTRA_ARGS})
+    TRAIN_CMD+=("${EXTRA_ARGS_ARRAY[@]}")
+fi
+
+echo "Command: ${TRAIN_CMD[*]}"
+"${TRAIN_CMD[@]}" > "$STDOUT_LOG" 2> "$STDERR_LOG"
