@@ -115,9 +115,9 @@ set_table5_lagrmappo() {
 
 set_fast_table5_runtime() {
   set_default N_THREADS 1
-  set_default N_ENVS 20
-  set_default N_STEPS 2000
-  set_default EVAL_FREQ 20000
+  set_default N_ENVS 40
+  set_default N_STEPS 520
+  set_default EVAL_FREQ 20800
   set_default PY_TIME_LIMIT 1380
   set_default CUDA false
   set_default CHECKPOINT true
@@ -159,7 +159,7 @@ case "${PRESET_NAME}" in
     set_default ALG MAPPO
     set_default USE_HEURISTIC false
     set_default TRACK false
-    set_default N_ENVS 5
+    set_default N_ENVS 120
     set_default N_STEPS 120
     set_default EVAL_FREQ 20000
     set_default PY_TIME_LIMIT 120
