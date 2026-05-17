@@ -128,6 +128,14 @@ class MAPPO:
                             for agent in agent_ids:
                                 real_next_obs[agent][idx] = th.tensor(infos[idx]["final_observation"][agent]).to(device)
                     
+                    if (step + 1) % args.n_steps == 0:
+                        elapsed = max(time() - start_time, 1e-9)
+                        print(
+                            f"rollout={iteration}/{n_rollouts} step={step + 1}/{args.n_steps} "
+                            f"global_step={global_step} SPS={int(global_step / elapsed)}",
+                            flush=True,
+                        )
+
                     if global_step % args.eval_freq == 0:
                         evaluator.evaluate(global_step, actors)
                         if args.verbose: print(f"SPS={int(global_step / (time() - start_time))}")
