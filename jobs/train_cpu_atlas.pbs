@@ -28,9 +28,9 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-1}"
 
 VENV_PATH="${VENV_PATH:-$PBS_O_WORKDIR/.venv}"
-PYTHON_ENV_LABEL="$VENV_PATH"
+PYTHON_ENV_LABEL="${CONDA_ENV:-$VENV_PATH}"
 
-if [ -f "$VENV_PATH/bin/activate" ]; then
+if [ -z "${CONDA_ENV:-}" ] && [ -f "$VENV_PATH/bin/activate" ]; then
     source "$VENV_PATH/bin/activate"
 else
     # Load the Atlas module system if it exists. The exact conda module name can vary

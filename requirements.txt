@@ -24,7 +24,7 @@ protobuf==3.20.3
 gymnasium==0.29.1
 stable-baselines3==2.3.2
 tensorboard==2.20.0
-wandb==0.25.0
+wandb==0.17.9
 
 pandapower==2.14.11
 LightSim2Grid==0.9.0

@@ -32,35 +32,58 @@ cd ICLR_marl2grid-2
 
 If you are not using git, copy the folder with `scp` or `rsync`.
 
-## 3. Create the Python environment once
+## 3. Create the Python 3.10 environment once
 
 Do this once on Atlas, not inside every training job.
 
-If you use a repo-local virtualenv:
+Recommended Python 3.10 conda environment:
+
+```bash
+module load miniconda/4.12
+conda create -n marl2grid-py310 python=3.10 -y
+conda activate marl2grid-py310
+python -m pip install --upgrade pip setuptools wheel
+pip install --only-binary=:all: -r requirements.txt
+pip install --no-deps -e .
+```
+
+Submit jobs with:
+
+```bash
+CONDA_ENV=marl2grid-py310 qsub jobs/train_cpu_atlas.pbs
+```
+
+If conda solving is too slow, install `mamba` once and use it for creation:
+
+```bash
+module load miniconda/4.12
+conda activate base
+conda install -n base -c conda-forge mamba -y
+mamba create -n marl2grid-py310 python=3.10 -y
+conda activate marl2grid-py310
+python -m pip install --upgrade pip setuptools wheel
+pip install --only-binary=:all: -r requirements.txt
+pip install --no-deps -e .
+```
+
+Alternative repo-local virtualenv, only if you are okay with the system Python
+version shown by `python3 --version`:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-pip install .
+python -m pip install --upgrade pip setuptools wheel
+pip install --only-binary=:all: -r requirements-atlas-py38.txt
+pip install --no-deps -e .
 ```
 
 The PBS script will activate `.venv` automatically if it exists.
 
-If you prefer conda:
-
-```bash
-module avail conda
-module load miniconda/4.12
-conda env create -f conda_env.yml
-conda activate marl2grid
-pip install .
-```
-
-Then install the Grid2Op version required by the project README. If the package
-must be built on a compute node, create a small PBS install job and run the same
-`pip install ...` command from that job.
+On Atlas, prefer `--only-binary=:all:` for dependency installation. The system
+compiler is old, so source builds for packages such as `pandas` and `wandb` tend
+to fail. After requirements are installed, use `--no-deps` for the editable
+project install so pip does not re-resolve Grid2Op's broad dependencies to newer
+source-only builds.
 
 ## 4. Edit the PBS account/project
 
