@@ -82,7 +82,8 @@ class MAPPO:
         start_time = start_time
         last_ckpt_time = start_time            # <-- track last checkpoint timestamp
         next_obs, _ = envs.reset()
-        next_obs = cast_np_to_tensors(next_obs, device)     
+        next_obs = cast_np_to_tensors(next_obs, device)  
+        progress_interval = max(1, min(100, args.n_steps))   
         try:
             for iteration in range(init_rollout, n_rollouts + 1):
                 # Annealing the rate if instructed to do so
@@ -128,7 +129,7 @@ class MAPPO:
                             for agent in agent_ids:
                                 real_next_obs[agent][idx] = th.tensor(infos[idx]["final_observation"][agent]).to(device)
                     
-                    if (step + 1) % args.n_steps == 0:
+                    if (step + 1) % progress_interval == 0:
                         elapsed = max(time() - start_time, 1e-9)
                         print(
                             f"rollout={iteration}/{n_rollouts} step={step + 1}/{args.n_steps} "

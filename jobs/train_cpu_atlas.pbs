@@ -78,6 +78,7 @@ set_table5_common() {
   set_default TRACK true
   set_default TOTAL_TIMESTEPS 60000000
   set_default GAMMA 0.99
+  set_default WANDB_MODE online
   set_default WANDB_ENTITY corentin-plumet-epfl
   set_default WANDB_PROJECT marl2grid
 }
@@ -280,15 +281,6 @@ print("===============================================")
 PY
 }
 
-set_default CUDA false
-set_default CHECKPOINT true
-set_default N_THREADS 1
-set_default N_ENVS 20
-set_default N_STEPS 20000
-set_default EVAL_FREQ 20000
-set_default PY_TIME_LIMIT 1300
-set_default TRACK false
-set_default WANDB_MODE offline
 
 ARGS=(
   --cuda "${CUDA}"
