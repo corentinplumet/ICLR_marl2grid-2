@@ -3,7 +3,7 @@
 #PBS -P test_project
 #PBS -N marl2grid_cpu
 #PBS -q parallel
-#PBS -l select=1:ncpus=96:mem=64gb
+#PBS -l select=1:ncpus=50:mem=16gb
 #PBS -l walltime=2:00:00
 #PBS -j oe
 #PBS -V
