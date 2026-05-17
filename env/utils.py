@@ -12,7 +12,6 @@ from grid2op.gym_compat import GymEnv, BoxGymObsSpace, DiscreteActSpace # if we 
 from grid2op.multi_agent import MultiAgentEnv
 from grid2op.Reward import CombinedReward
 from lightsim2grid import LightSimBackend
-from ray.rllib.env.multi_agent_env import MultiAgentEnv as MAEnv
 
 from common.imports import *
 from .reward import LineMarginReward, RedispRewardv1, N1ContingencyRewardv1, FlatRewardv1, DistanceRewardv1, OverloadReward
@@ -43,7 +42,7 @@ def load_config(file_path: str) -> Dict:
     return config
 
 
-class MAEnvWrapper(MAEnv):
+class MAEnvWrapper(gym.Env):
     def __init__(self, args: Dict[str, Any], resume_run: bool = False, idx: int = 0, generate_class: bool = False, async_vec_env: bool = False, action_space = None, eval_env: bool = False) -> Any:
         """Create and configure a grid2op environment.
 
