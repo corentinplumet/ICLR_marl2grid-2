@@ -2,9 +2,9 @@
 # NUS Atlas PBS launcher adapted from the Izar Slurm launcher.
 #PBS -P test_project
 #PBS -N marl2grid_cpu
-#PBS -q gracehopper
-#PBS -l select=1:ncpus=40:mem=64gb:ngpus=1
-#PBS -l walltime=24:00:00
+#PBS -q parallel
+#PBS -l select=1:ncpus=96:mem=64gb
+#PBS -l walltime=2:00:00
 #PBS -j oe
 #PBS -V
 
