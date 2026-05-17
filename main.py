@@ -36,8 +36,18 @@ def main(args: Namespace) -> None:
     if (alg == "LAGRMAPPO" and args.constraints_type == 0) or (alg != "LAGRMAPPO" and args.constraints_type in [1, 2]):
         raise ValueError("Check the constrained version of the alg/env!")
 
-    run_name = args.resume_run_name if args.resume_run_name \
-        else f"{args.alg}_{args.env_id}_{"T" if args.action_type == "topology" else "R"}_{args.seed}_{args.difficulty}_{"H" if args.use_heuristic else ""}_{"I" if args.heuristic_type == "idle" else ""}_{"C1" if args.constraints_type == 1 else "C2" if args.constraints_type == 2 else ""}_{int(time())}_{np.random.randint(0, 50000)}"
+    if args.resume_run_name:
+        run_name = args.resume_run_name
+    else:
+        action_tag = "T" if args.action_type == "topology" else "R"
+        heuristic_tag = "H" if args.use_heuristic else ""
+        heuristic_type_tag = "I" if args.heuristic_type == "idle" else ""
+        constraint_tag = "C1" if args.constraints_type == 1 else "C2" if args.constraints_type == 2 else ""
+        run_name = (
+            f"{args.alg}_{args.env_id}_{action_tag}_{args.seed}_{args.difficulty}_"
+            f"{heuristic_tag}_{heuristic_type_tag}_{constraint_tag}_{int(time())}_"
+            f"{np.random.randint(0, 50000)}"
+        )
 
     # Initialize the appropriate checkpoint based on the algorithm
     if alg == 'MAPPO': checkpoint = MAPPOCheckpoint(run_name, args)

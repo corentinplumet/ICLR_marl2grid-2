@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$PBS_O_WORKDIR"
 
 JOB_ID="${PBS_JOBID:-local}"
-NCPUS="$(wc -l < "${PBS_NODEFILE}")"
+ALLOCATED_CPU_SLOTS="${NCPUS:-${PBS_NP:-$(wc -l < "${PBS_NODEFILE}")}}"
 LOG_DIR="$PBS_O_WORKDIR/logs"
 STDOUT_LOG="$LOG_DIR/stdout.$JOB_ID"
 STDERR_LOG="$LOG_DIR/stderr.$JOB_ID"
@@ -21,18 +21,19 @@ mkdir -p "$LOG_DIR" checkpoint
 
 # Keep CPU oversubscription under control. The training code creates one
 # process per vector environment, so each worker should use one BLAS/Torch thread.
+CPU_THREADS="${CPU_THREADS:-1}"
 export PYTHONUNBUFFERED=1
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
-export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
-export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
-export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-1}"
+export OMP_NUM_THREADS="$CPU_THREADS"
+export MKL_NUM_THREADS="$CPU_THREADS"
+export OPENBLAS_NUM_THREADS="$CPU_THREADS"
+export NUMEXPR_NUM_THREADS="$CPU_THREADS"
 
 VENV_PATH="${VENV_PATH:-$PBS_O_WORKDIR/.venv}"
 PYTHON_ENV_LABEL="${CONDA_ENV:-$VENV_PATH}"
 
 source "$VENV_PATH/bin/activate"
 
-# Defaults are chosen to fit Atlas parallel24: 20 env workers plus room for the
+# Defaults are chosen to fit Atlas parallel queue: 20 env workers plus room for the
 # main process, evaluation, logging, and OS overhead. For this repo, N_ENVS must
 # divide MAPPO's n_steps/eval_freq, QPLEX's train_freq/eval_freq, or LAGRMAPPO's
 # n_steps/eval_freq.
@@ -40,7 +41,7 @@ ALG="${ALG:-MAPPO}"
 ENV_ID="${ENV_ID:-bus14}"
 SEED="${SEED:-0}"
 N_ENVS="${N_ENVS:-20}"
-TORCH_THREADS="${TORCH_THREADS:-1}"
+TORCH_THREADS="${TORCH_THREADS:-$CPU_THREADS}"
 TOTAL_TIMESTEPS="${TOTAL_TIMESTEPS:-25000000}"
 TRACK="${TRACK:-False}"
 WANDB_MODE_ARG="${WANDB_MODE:-offline}"
@@ -48,7 +49,7 @@ CHECKPOINT="${CHECKPOINT:-True}"
 
 echo "PBS job id: $JOB_ID"
 echo "Working directory: $PBS_O_WORKDIR"
-echo "Allocated CPU slots: $NCPUS"
+echo "Allocated CPU slots: $ALLOCATED_CPU_SLOTS"
 echo "Python env: $PYTHON_ENV_LABEL"
 echo "Training: alg=$ALG env=$ENV_ID seed=$SEED n_envs=$N_ENVS torch_threads=$TORCH_THREADS"
 echo "Logs: $STDOUT_LOG and $STDERR_LOG"
@@ -57,9 +58,17 @@ python - <<'PY'
 import os
 import sys
 import torch
+import numpy
+import grid2op
+import lightsim2grid
+import wandb
 
 print("Python:", sys.version.replace("\n", " "))
 print("Torch:", torch.__version__)
+print("NumPy:", numpy.__version__)
+print("Grid2Op:", grid2op.__version__)
+print("LightSim2Grid:", lightsim2grid.__version__)
+print("W&B:", wandb.__version__)
 print("CUDA available:", torch.cuda.is_available())
 print("OMP_NUM_THREADS:", os.environ.get("OMP_NUM_THREADS"))
 PY
