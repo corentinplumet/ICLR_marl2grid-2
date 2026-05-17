@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -P CHANGE_ME_PROJECT
+#PBS -P test_project
 #PBS -N marl2grid_cpu
 #PBS -q parallel
 #PBS -l select=1:ncpus=24:mem=48gb
@@ -30,35 +30,7 @@ export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-1}"
 VENV_PATH="${VENV_PATH:-$PBS_O_WORKDIR/.venv}"
 PYTHON_ENV_LABEL="${CONDA_ENV:-$VENV_PATH}"
 
-if [ -z "${CONDA_ENV:-}" ] && [ -f "$VENV_PATH/bin/activate" ]; then
-    source "$VENV_PATH/bin/activate"
-else
-    # Load the Atlas module system if it exists. The exact conda module name can vary
-    # by cluster image, so the block falls back to a conda install in your home dir.
-    source /etc/profile.d/rec_modules.sh 2>/dev/null || true
-    if command -v module >/dev/null 2>&1; then
-        module load miniconda/4.12 2>/dev/null \
-            || module load miniconda/4.9 2>/dev/null \
-            || module load miniconda3 2>/dev/null \
-            || module load anaconda3 2>/dev/null \
-            || module load conda 2>/dev/null \
-            || true
-    fi
-
-    if command -v conda >/dev/null 2>&1; then
-        eval "$(conda shell.bash hook)"
-    elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-        source "$HOME/miniconda3/etc/profile.d/conda.sh"
-    elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-        source "$HOME/anaconda3/etc/profile.d/conda.sh"
-    else
-        echo "Could not find $VENV_PATH or conda. Create .venv or load the right Atlas conda module." >&2
-        exit 1
-    fi
-
-    conda activate "${CONDA_ENV:-marl2grid}"
-    PYTHON_ENV_LABEL="${CONDA_ENV:-marl2grid}"
-fi
+source "$VENV_PATH/bin/activate"
 
 # Defaults are chosen to fit Atlas parallel24: 20 env workers plus room for the
 # main process, evaluation, logging, and OS overhead. For this repo, N_ENVS must
