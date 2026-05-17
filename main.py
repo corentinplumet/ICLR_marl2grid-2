@@ -24,6 +24,7 @@ def main(args: Namespace) -> None:
         AssertionError: If time limit exceeds 2800 minutes or if number of environments is less than 1.
         AssertionError: If the specified algorithm is not supported.
     """
+    print("start main")
     assert args.time_limit <= 2800, f"Invalid time limit: {args.time_limit}. Timeout limit is : 2800"
     start_time = time()
     

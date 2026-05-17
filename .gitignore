@@ -3,7 +3,6 @@
 venv/
 env/
 .env
-requirements_atlas_locked.txt
 
 # Python cache/build artifacts
 __pycache__/

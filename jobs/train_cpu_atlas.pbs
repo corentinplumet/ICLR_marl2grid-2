@@ -19,15 +19,6 @@ STDERR_LOG="$LOG_DIR/stderr.$JOB_ID"
 
 mkdir -p "$LOG_DIR" checkpoint
 
-# Keep CPU oversubscription under control. The training code creates one
-# process per vector environment, so each worker should use one BLAS/Torch thread.
-CPU_THREADS="${CPU_THREADS:-1}"
-export PYTHONUNBUFFERED=1
-export OMP_NUM_THREADS="$CPU_THREADS"
-export MKL_NUM_THREADS="$CPU_THREADS"
-export OPENBLAS_NUM_THREADS="$CPU_THREADS"
-export NUMEXPR_NUM_THREADS="$CPU_THREADS"
-
 VENV_PATH="${VENV_PATH:-$PBS_O_WORKDIR/.venv}"
 PYTHON_ENV_LABEL="${CONDA_ENV:-$VENV_PATH}"
 
@@ -96,4 +87,4 @@ if [ -n "${EXTRA_ARGS:-}" ]; then
 fi
 
 echo "Command: ${TRAIN_CMD[*]}"
-"${TRAIN_CMD[@]}" > "$STDOUT_LOG" 2> "$STDERR_LOG"
+stdbuf -oL -eL "${TRAIN_CMD[@]}" > "$STDOUT_LOG" 2> "$STDERR_LOG"
