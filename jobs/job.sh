@@ -4,9 +4,9 @@
 #SBATCH --error=routput_jobs/job_err_%j.log
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=30
 #SBATCH --mem=32G
-#SBATCH --time=00:30:00
+#SBATCH --time=4:00:00
 #SBATCH --partition=gpu
 #SBATCH --qos=normal
 #SBATCH --gres=gpu:1
@@ -25,12 +25,12 @@ CONDA_ENV_NAME="${CONDA_ENV_NAME:-marl2grid}"
 cd "${PROJECT_DIR}"
 mkdir -p routput_jobs checkpoint
 
-if [ -d "${VENV_PATH}" ]; then
-  source "${VENV_PATH}/bin/activate"
-elif command -v conda >/dev/null 2>&1; then
+if command -v conda >/dev/null 2>&1; then
   CONDA_BASE="$(conda info --base)"
   source "${CONDA_BASE}/etc/profile.d/conda.sh"
   conda activate "${CONDA_ENV_NAME}"
+elif [ -d "${VENV_PATH}" ]; then
+  source "${VENV_PATH}/bin/activate"
 else
   echo "No virtualenv found at ${VENV_PATH}, and conda is not available." >&2
   exit 1
@@ -41,9 +41,9 @@ export PYTHONUNBUFFERED=1
 CUDA="${CUDA:-false}"
 CHECKPOINT="${CHECKPOINT:-true}"
 N_THREADS="${N_THREADS:-1}"
-N_ENVS="${N_ENVS:-40}"
-N_STEPS="${N_STEPS:-520}"
-EVAL_FREQ="${EVAL_FREQ:-20800}"
+N_ENVS="${N_ENVS:-40}" #40
+N_STEPS="${N_STEPS:-520}" #520
+EVAL_FREQ="${EVAL_FREQ:-20800}" #20800
 TIME_LIMIT="${TIME_LIMIT:-1380}"
 ENV_ID="${ENV_ID:-bus14}"
 ALG="${ALG:-MAPPO}"
@@ -61,6 +61,7 @@ ACTOR_LR="${ACTOR_LR:-3e-5}"
 CRITIC_LR="${CRITIC_LR:-3e-5}"
 CLIP_COEF="${CLIP_COEF:-0.2}"
 SEED="${SEED:-0}"
+INIT_DO_NOTHING_PROB="${INIT_DO_NOTHING_PROB:-0.5}"
 
 CMD=(
   python -u main.py
@@ -87,6 +88,7 @@ CMD=(
   --critic-lr "${CRITIC_LR}"
   --clip-coef "${CLIP_COEF}"
   --seed "${SEED}"
+  --init-do-nothing-prob "${INIT_DO_NOTHING_PROB}"
 )
 
 CMD+=("$@")
