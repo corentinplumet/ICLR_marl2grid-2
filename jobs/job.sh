@@ -4,7 +4,7 @@
 #SBATCH --error=routput_jobs/job_err_%j.log
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=40
+#SBATCH --cpus-per-task=20
 #SBATCH --mem=32G
 #SBATCH --time=00:30:00
 #SBATCH --partition=gpu
