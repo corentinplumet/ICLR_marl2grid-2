@@ -44,7 +44,7 @@ class MAPPO:
         actors = {f"agent_{idx}": Actor(idx, envs, args, continuous_actions).to(device) 
                   for idx in range(len(agent_ids))}
     
-        critic = Critic(envs, args).to(device)
+        critic = Critic(envs, args)
 
         if ckpt.resumed:
             for agent in actors.keys():
@@ -82,8 +82,7 @@ class MAPPO:
         start_time = start_time
         last_ckpt_time = start_time            # <-- track last checkpoint timestamp
         next_obs, _ = envs.reset()
-        next_obs = cast_np_to_tensors(next_obs, device)  
-        progress_interval = max(1, min(100, args.n_steps))   
+        next_obs = cast_np_to_tensors(next_obs, device)     
         try:
             for iteration in range(init_rollout, n_rollouts + 1):
                 # Annealing the rate if instructed to do so
@@ -129,32 +128,25 @@ class MAPPO:
                             for agent in agent_ids:
                                 real_next_obs[agent][idx] = th.tensor(infos[idx]["final_observation"][agent]).to(device)
                     
-                    if (step + 1) % progress_interval == 0:
-                        elapsed = max(time() - start_time, 1e-9)
-                        print(
-                            f"rollout={iteration}/{n_rollouts} step={step + 1}/{args.n_steps} "
-                            f"global_step={global_step} SPS={int(global_step / elapsed)}",
-                            flush=True,
-                        )
-
                     if global_step % args.eval_freq == 0:
                         evaluator.evaluate(global_step, actors)
                         if args.verbose: print(f"SPS={int(global_step / (time() - start_time))}")
 
-                # Bootstrap the centralized critic from the shared joint reward.
+                # Bootstrap value if not done
                 with th.no_grad():
-                    advantages = th.zeros_like(rewards[agent_ids[0]]).to(device)
+                    advantages, returns = {}, {}
                     joint_real_next_obs = stack_agent_obs_by_env(real_next_obs) if args.decentralized else real_next_obs['agent_0']
-                    joint_rewards = rewards[agent_ids[0]]
-                    lastgaelam = 0
-                    for t in reversed(range(args.n_steps)):
-                        if t == args.n_steps - 1:
-                            nextvalues = critic.get_value(joint_real_next_obs).reshape(1, -1)
-                        else:
-                            nextvalues = values[t + 1]
-                        delta = joint_rewards[t] + args.gamma * nextvalues * (1 - terminations[t]) - values[t]
-                        advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * (1 - dones[t]) * lastgaelam
-                    returns = advantages + values
+                    for agent in agent_ids:
+                        advantages[agent] = th.zeros_like(rewards[agent]).to(device)
+                        lastgaelam = 0
+                        for t in reversed(range(args.n_steps)):
+                            if t == args.n_steps - 1:
+                                nextvalues = critic.get_value(joint_real_next_obs).reshape(1, -1)
+                            else:
+                                nextvalues = values[t + 1]
+                            delta = rewards[agent][t] + args.gamma * nextvalues * (1 - terminations[t]) - values[t]
+                            advantages[agent][t] = lastgaelam = delta + args.gamma * args.gae_lambda * (1 - dones[t]) * lastgaelam
+                        returns[agent] = advantages[agent] + values
     
                 # --- HOURLY CHECKPOINT (wall clock) ---
                 if time() - last_ckpt_time >= 3600:
@@ -170,42 +162,35 @@ class MAPPO:
             
                 b_values = values.reshape(-1)
                 b_joint_obs = joint_observations.reshape((-1,) + (joint_obs_size,))
-                b_advantages = advantages.reshape(-1)
-                b_returns = returns.reshape(-1)
-                b_obs = {
-                    agent: observations[agent].reshape((-1,) + envs.observation_space[agent].shape)
-                    for agent in agent_ids
-                }
-                b_logprobs = {agent: logprobs[agent].reshape(-1) for agent in agent_ids}
-                b_actions = {agent: actions[agent].reshape(-1,) for agent in agent_ids}
+                for agent in agent_ids:
+                    # Flatten the batch
+                    b_obs = observations[agent].reshape((-1,) + envs.observation_space[agent].shape)
+                    b_logprobs = logprobs[agent].reshape(-1)
+                    b_actions = actions[agent].reshape(-1,)
+                    b_advantages = advantages[agent].reshape(-1)
+                    b_returns = returns[agent].reshape(-1)
 
-                # Optimise decentralized actors with a shared advantage, then update
-                # the centralized critic once per minibatch on the shared return.
-                b_inds = np.arange(batch_size)
-                clipfracs = []
-                for _ in range(args.update_epochs):
-                    np.random.shuffle(b_inds)
-                    stop_update = False
-                    for start in range(0, batch_size, minibatch_size):
-                        end = start + minibatch_size
-                        mb_inds = b_inds[start:end]
-
-                        mb_advantages = b_advantages[mb_inds]
-                        if args.norm_adv:
-                            mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-
-                        actor_losses, approx_kls = [], []
-                        for agent in agent_ids:
-                            _, newlogprob, entropy = actors[agent].get_action(b_obs[agent][mb_inds], b_actions[agent].long()[mb_inds])
-                            logratio = newlogprob - b_logprobs[agent][mb_inds]
+                    # Optimizing the policy and value network
+                    b_inds = np.arange(batch_size)
+                    clipfracs = []
+                    for _ in range(args.update_epochs):
+                        np.random.shuffle(b_inds)
+                        for start in range(0, batch_size, minibatch_size):
+                            end = start + minibatch_size
+                            mb_inds = b_inds[start:end]
+                            action, newlogprob, entropy = actors[agent].get_action(b_obs[mb_inds], b_actions.long()[mb_inds])
+                            logratio = newlogprob - b_logprobs[mb_inds]
                             ratio = logratio.exp()
 
                             with th.no_grad():
                                 # calculate approx_kl http://joschu.net/blog/kl-approx.html
                                 #old_approx_kl = (-logratio).mean()
                                 approx_kl = ((ratio - 1) - logratio).mean()
-                                approx_kls.append(approx_kl)
                                 clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
+
+                            mb_advantages = b_advantages[mb_inds]
+                            if args.norm_adv:
+                                mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
                             # Policy loss
                             pg_loss1 = -mb_advantages * ratio
@@ -213,42 +198,37 @@ class MAPPO:
                             pg_loss = th.max(pg_loss1, pg_loss2).mean()
 
                             entropy_loss = entropy.mean()
-                            actor_losses.append(pg_loss - args.entropy_coef * entropy_loss)
+                            pg_loss = pg_loss - args.entropy_coef * entropy_loss
 
-                        actor_loss = th.stack(actor_losses).sum()
-                        actor_optim.zero_grad()
-                        actor_loss.backward()
-                        nn.utils.clip_grad_norm_(actor_params, args.max_grad_norm)
-                        actor_optim.step()
+                            actor_optim.zero_grad()
+                            pg_loss.backward()
+                            nn.utils.clip_grad_norm_(actors[agent].parameters(), args.max_grad_norm)
+                            actor_optim.step()
 
-                        # Value loss
-                        newvalue = critic.get_value(b_joint_obs[mb_inds]).view(-1)
-                        if args.clip_vfloss:
-                            v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                            v_clipped = b_values[mb_inds] + th.clamp(
-                                newvalue - b_values[mb_inds],
-                                -args.clip_coef,
-                                args.clip_coef,
-                            )
-                            v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                            v_loss_max = th.max(v_loss_unclipped, v_loss_clipped)
-                            v_loss = 0.5 * v_loss_max.mean()
-                        else:
-                            v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                            # Value loss
+                            newvalue = critic.get_value(b_joint_obs[mb_inds]).view(-1)
+                            if args.clip_vfloss:
+                                v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                                v_clipped = b_values[mb_inds] + th.clamp(
+                                    newvalue - b_values[mb_inds],
+                                    -args.clip_coef,
+                                    args.clip_coef,
+                                )
+                                v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                                v_loss_max = th.max(v_loss_unclipped, v_loss_clipped)
+                                v_loss = 0.5 * v_loss_max.mean()
+                            else:
+                                v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
-                        v_loss *= args.vf_coef
+                            v_loss *= args.vf_coef
 
-                        critic_optim.zero_grad()
-                        v_loss.backward()
-                        nn.utils.clip_grad_norm_(critic.parameters(), args.max_grad_norm)
-                        critic_optim.step()
+                            critic_optim.zero_grad()
+                            v_loss.backward()
+                            nn.utils.clip_grad_norm_(critic.parameters(), args.max_grad_norm)
+                            critic_optim.step()
 
-                        if args.target_kl is not None and th.stack(approx_kls).max().item() > args.target_kl:
-                            stop_update = True
+                        if args.target_kl is not None and approx_kl > args.target_kl:
                             break
-
-                    if stop_update:
-                        break
 
                 # If we reach the node's time limit, we just exit the training loop, save metrics and ckpt
                 if (time() - start_time) / 60 >= args.time_limit:
