@@ -155,18 +155,30 @@ class MAEnvWrapper(gym.Env):
         self._agent_ids = self.g2op_ma_env.agents
         self.g2op_ma_env.seed(args.seed+idx)
 
+        # # Prepare action and observation spaces
+        # state_attrs = config['state_attrs']
+        # obs_attrs = state_attrs['default']
+        # if env_config[env_id]['maintenance']: obs_attrs += state_attrs['maintenance']
+
+        # if env_type == 'topology': 
+        #     obs_attrs += state_attrs['topology']
+        #     obs_attrs += state_attrs['redispatch']
+        #     if env_config[env_id]['renewable'] : 
+        #         obs_attrs += state_attrs['curtailment']
+        #     if env_config[env_id]['battery']:
+        #         obs_attrs += state_attrs['storage']
+        # else:
+        #     raise NotImplementedError("Redispatching environments are not implemented yet!")
+
         # Prepare action and observation spaces
         state_attrs = config['state_attrs']
-        obs_attrs = state_attrs['default']
+        obs_attrs = list(state_attrs['default'])
         if env_config[env_id]['maintenance']: obs_attrs += state_attrs['maintenance']
 
-        if env_type == 'topology': 
+        if env_type == 'topology':
+            # Discrete topology experiments should not observe continuous-control
+            # redispatch, curtailment, or storage quantities.
             obs_attrs += state_attrs['topology']
-            obs_attrs += state_attrs['redispatch']
-            if env_config[env_id]['renewable'] : 
-                obs_attrs += state_attrs['curtailment']
-            if env_config[env_id]['battery']:
-                obs_attrs += state_attrs['storage']
         else:
             raise NotImplementedError("Redispatching environments are not implemented yet!")
         
