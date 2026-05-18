@@ -3,8 +3,8 @@
 #PBS -P test_project
 #PBS -N marl2grid_cpu
 #PBS -q parallel
-#PBS -l select=1:ncpus=20:mem=32gb
-#PBS -l walltime=1:00:00
+#PBS -l select=1:ncpus=40:mem=32gb
+#PBS -l walltime=3:00:00
 #PBS -j oe
 #PBS -V
 
@@ -117,8 +117,8 @@ set_table5_lagrmappo() {
 set_fast_table5_runtime() {
   set_default N_THREADS 1
   set_default N_ENVS 10
-  set_default N_STEPS 100
-  set_default EVAL_FREQ 1000
+  set_default N_STEPS 2000
+  set_default EVAL_FREQ 20000
   set_default PY_TIME_LIMIT 1380
   set_default CUDA false
   set_default CHECKPOINT true
