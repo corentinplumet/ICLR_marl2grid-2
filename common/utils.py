@@ -109,3 +109,59 @@ th_act_fns = {
     'leaky_relu': nn.LeakyReLU(),
 }
 
+
+class RunningMeanStd:
+    """Welford-style running estimator of scalar mean/variance, vectorized over batches.
+
+    Used to track the running variance of discounted returns for reward normalization
+    (Stable Baselines3 VecNormalize style).
+    """
+
+    def __init__(self, eps: float = 1e-4):
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = float(eps)
+
+    def update(self, x: np.ndarray) -> None:
+        x = np.asarray(x, dtype=np.float64).ravel()
+        batch_count = x.size
+        if batch_count == 0:
+            return
+        batch_mean = float(x.mean())
+        batch_var = float(x.var())
+        delta = batch_mean - self.mean
+        new_count = self.count + batch_count
+        new_mean = self.mean + delta * batch_count / new_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + delta**2 * self.count * batch_count / new_count
+        self.mean = new_mean
+        self.var = M2 / new_count
+        self.count = new_count
+
+
+class ReturnNormalizer:
+    """Reward normalization by running std of discounted returns.
+
+    Per-env, this tracks G_t = gamma * G_{t-1} + r_t, then maintains a running
+    estimate of Var[G]. At each step, the raw reward r_t is divided by sqrt(Var[G])
+    before being stored in the rollout buffer. Mean is NOT subtracted (would shift
+    the optimal policy). On episode end, the per-env return tracker is reset.
+
+    Reference: Stable Baselines3 VecNormalize (https://stable-baselines3.readthedocs.io).
+    """
+
+    def __init__(self, n_envs: int, gamma: float, eps: float = 1e-8):
+        self.gamma = float(gamma)
+        self.eps = float(eps)
+        self.ret_rms = RunningMeanStd()
+        self.returns = np.zeros(int(n_envs), dtype=np.float64)
+
+    def __call__(self, reward: np.ndarray, done: np.ndarray) -> np.ndarray:
+        reward = np.asarray(reward, dtype=np.float64)
+        done = np.asarray(done).astype(bool)
+        self.returns = self.returns * self.gamma + reward
+        self.ret_rms.update(self.returns)
+        normed = reward / np.sqrt(self.ret_rms.var + self.eps)
+        self.returns[done] = 0.0
+        return normed.astype(np.float32)

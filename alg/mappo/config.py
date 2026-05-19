@@ -42,5 +42,11 @@ def get_alg_args() -> Namespace:
         default=0.5,
         help="Initial softmax probability for action 0. Set 0.0 to keep the default random output-layer init.",
     )
+    parser.add_argument(
+        "--norm-reward",
+        type=str2bool,
+        default=True,
+        help="Toggle running-stats reward normalization (SB3 VecNormalize style: divide reward by running std of discounted returns).",
+    )
 
     return parser.parse_known_args()[0]

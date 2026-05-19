@@ -5,7 +5,7 @@ from .config import get_alg_args
 from common.checkpoint import CheckpointSaver
 from common.imports import *
 from common.logger import Logger
-from common.utils import cast_np_to_tensors, stack_agent_obs_by_env
+from common.utils import ReturnNormalizer, cast_np_to_tensors, stack_agent_obs_by_env
 from env.eval import Evaluator
 
 class MAPPO:
@@ -81,6 +81,9 @@ class MAPPO:
         global_step = 0 if not ckpt.resumed else ckpt.loaded_run['global_step']
         start_time = start_time
         last_ckpt_time = start_time            # <-- track last checkpoint timestamp
+        reward_normalizer = (
+            ReturnNormalizer(args.n_envs, args.gamma) if getattr(args, "norm_reward", False) else None
+        )
         next_obs, _ = envs.reset()
         next_obs = cast_np_to_tensors(next_obs, device)     
         try:
@@ -112,6 +115,19 @@ class MAPPO:
                         values[step] = value.flatten()
                         
                     next_obs, reward, next_terminations, next_truncations, infos = envs.step(action)
+
+                    if reward_normalizer is not None:
+                        done_np = np.logical_or(
+                            next_terminations[agent_ids[0]],
+                            next_truncations[agent_ids[0]],
+                        )
+                        # Reward is identical across agents in this env (joint reward),
+                        # so normalize once and broadcast to every agent's stream.
+                        normed = reward_normalizer(
+                            np.asarray(reward[agent_ids[0]]), done_np
+                        )
+                        for agent in agent_ids:
+                            reward[agent] = normed
                 
                     reward = cast_np_to_tensors(reward, device)
                     for agent in agent_ids: rewards[agent][step] = reward[agent]
