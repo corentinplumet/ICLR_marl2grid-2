@@ -44,7 +44,7 @@ class MAPPO:
         actors = {f"agent_{idx}": Actor(idx, envs, args, continuous_actions).to(device) 
                   for idx in range(len(agent_ids))}
     
-        critic = Critic(envs, args)
+        critic = Critic(envs, args).to(device)
 
         if ckpt.resumed:
             for agent in actors.keys():
