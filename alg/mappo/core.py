@@ -205,35 +205,34 @@ class MAPPO:
 
                 # Bootstrap value if not done
                 with th.no_grad():
-                    advantages, returns = {}, {}
+                    joint_rewards = rewards[agent_ids[0]]
+                    advantages = th.zeros_like(joint_rewards).to(device)
                     joint_real_next_obs = (
                         stack_agent_obs_by_env(real_next_obs)
                         if args.decentralized
                         else real_next_obs["agent_0"]
                     )
-                    for agent in agent_ids:
-                        advantages[agent] = th.zeros_like(rewards[agent]).to(device)
-                        lastgaelam = 0
-                        for t in reversed(range(args.n_steps)):
-                            if t == args.n_steps - 1:
-                                nextvalues = critic.get_value(
-                                    joint_real_next_obs
-                                ).reshape(1, -1)
-                            else:
-                                nextvalues = values[t + 1]
-                            delta = (
-                                rewards[agent][t]
-                                + args.gamma * nextvalues * (1 - terminations[t])
-                                - values[t]
-                            )
-                            advantages[agent][t] = lastgaelam = (
-                                delta
-                                + args.gamma
-                                * args.gae_lambda
-                                * (1 - dones[t])
-                                * lastgaelam
-                            )
-                        returns[agent] = advantages[agent] + values
+                    lastgaelam = 0
+                    for t in reversed(range(args.n_steps)):
+                        if t == args.n_steps - 1:
+                            nextvalues = critic.get_value(
+                                joint_real_next_obs
+                            ).reshape(1, -1)
+                        else:
+                            nextvalues = values[t + 1]
+                        delta = (
+                            joint_rewards[t]
+                            + args.gamma * nextvalues * (1 - terminations[t])
+                            - values[t]
+                        )
+                        advantages[t] = lastgaelam = (
+                            delta
+                            + args.gamma
+                            * args.gae_lambda
+                            * (1 - dones[t])
+                            * lastgaelam
+                        )
+                    returns = advantages + values
 
                 # --- HOURLY CHECKPOINT (wall clock) ---
                 if time() - last_ckpt_time >= 3600:
@@ -253,6 +252,8 @@ class MAPPO:
 
                 b_values = values.reshape(-1)
                 b_joint_obs = joint_observations.reshape((-1,) + (joint_obs_size,))
+                b_advantages = advantages.reshape(-1)
+                b_returns = returns.reshape(-1)
 
                 # Per-rollout training metric accumulators
                 train_metrics = {
@@ -270,10 +271,8 @@ class MAPPO:
                     b_actions = actions[agent].reshape(
                         -1,
                     )
-                    b_advantages = advantages[agent].reshape(-1)
-                    b_returns = returns[agent].reshape(-1)
 
-                    # Optimizing the policy and value network
+                    # Optimizing the policy network
                     b_inds = np.arange(batch_size)
                     clipfracs = []
                     for _ in range(args.update_epochs):
@@ -321,41 +320,46 @@ class MAPPO:
                             )
                             actor_optim.step()
 
-                            # Value loss
-                            newvalue = critic.get_value(b_joint_obs[mb_inds]).view(-1)
-                            if args.clip_vfloss:
-                                v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                                v_clipped = b_values[mb_inds] + th.clamp(
-                                    newvalue - b_values[mb_inds],
-                                    -args.clip_coef,
-                                    args.clip_coef,
-                                )
-                                v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                                v_loss_max = th.max(v_loss_unclipped, v_loss_clipped)
-                                v_loss = 0.5 * v_loss_max.mean()
-                            else:
-                                v_loss = (
-                                    0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
-                                )
-
-                            v_loss *= args.vf_coef
-
-                            critic_optim.zero_grad()
-                            v_loss.backward()
-                            nn.utils.clip_grad_norm_(
-                                critic.parameters(), args.max_grad_norm
-                            )
-                            critic_optim.step()
-
                             # Accumulate per-minibatch training metrics
                             train_metrics[agent]["entropy"].append(float(entropy_loss.detach()))
                             train_metrics[agent]["pg_loss"].append(float(pg_loss.detach()))
                             train_metrics[agent]["approx_kl"].append(float(approx_kl.detach()))
                             train_metrics[agent]["clipfrac"].append(float(clipfracs[-1]))
-                            v_loss_history.append(float(v_loss.detach()))
 
                         if args.target_kl is not None and approx_kl > args.target_kl:
                             break
+
+                # Optimizing the centralized value network once on the shared joint return.
+                b_inds = np.arange(batch_size)
+                for _ in range(args.update_epochs):
+                    np.random.shuffle(b_inds)
+                    for start in range(0, batch_size, minibatch_size):
+                        end = start + minibatch_size
+                        mb_inds = b_inds[start:end]
+
+                        newvalue = critic.get_value(b_joint_obs[mb_inds]).view(-1)
+                        if args.clip_vfloss:
+                            v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                            v_clipped = b_values[mb_inds] + th.clamp(
+                                newvalue - b_values[mb_inds],
+                                -args.clip_coef,
+                                args.clip_coef,
+                            )
+                            v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                            v_loss_max = th.max(v_loss_unclipped, v_loss_clipped)
+                            v_loss = 0.5 * v_loss_max.mean()
+                        else:
+                            v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                        v_loss *= args.vf_coef
+
+                        critic_optim.zero_grad()
+                        v_loss.backward()
+                        nn.utils.clip_grad_norm_(
+                            critic.parameters(), args.max_grad_norm
+                        )
+                        critic_optim.step()
+                        v_loss_history.append(float(v_loss.detach()))
 
                 # Log per-rollout training metrics to wandb
                 if logger is not None:
@@ -377,7 +381,7 @@ class MAPPO:
                     # Explained variance of the (shared) critic against agent_0's returns
                     # (all agents have identical returns under shared joint reward)
                     y_pred = values.reshape(-1).cpu().numpy()
-                    y_true = returns[agent_ids[0]].reshape(-1).cpu().numpy()
+                    y_true = returns.reshape(-1).cpu().numpy()
                     var_y = float(np.var(y_true))
                     metrics_to_log["train/explained_variance"] = (
                         float("nan") if var_y == 0.0 else 1.0 - float(np.var(y_true - y_pred)) / var_y
