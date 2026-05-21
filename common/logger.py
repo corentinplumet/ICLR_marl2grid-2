@@ -70,7 +70,18 @@ class Logger:
         record['charts/global_step'] = global_step
 
         wb.log(record, step=global_step)
-    
+
+    def log_train_metrics(self, global_step: int, metrics: Dict[str, float]) -> None:
+        """Log per-rollout training metrics (entropy, KL, losses, action stats) to WandB.
+
+        Args:
+            global_step: Current global step of training.
+            metrics: Flat dict of metric name -> scalar value.
+        """
+        record = dict(metrics)
+        record['charts/global_step'] = global_step
+        wb.log(record, step=global_step)
+
     def close(self) -> None:
         """Close the logger and clean up resources."""
         if self.wb_path is not None and self.wb_mode == 'offline':
