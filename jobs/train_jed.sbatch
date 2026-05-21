@@ -1,12 +1,10 @@
 #!/bin/bash
-# JED is a CPU-only cluster. This launcher uses one full standard node, which is
-# the maximum useful allocation for the current single-node multiprocessing code.
-# JED's 32-node parallel QOS would require a distributed training implementation.
+# Backward-compatible entry point. Prefer submitting jobs/job_jed.sh directly.
 #SBATCH --job-name=marl2grid_jed
 #SBATCH --mail-user=corentin.plumet@epfl.ch
 #SBATCH --mail-type=END,FAIL
-#SBATCH --partition=standard
-#SBATCH --qos=serial
+#SBATCH --partition=academic
+#SBATCH --qos=academic
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=72
@@ -16,16 +14,19 @@
 #SBATCH --error=slurm-%x-%j.err
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "${SCRIPT_DIR}/job_jed.sh" "$@"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Usage:
   sbatch jobs/train_jed.sbatch
   sbatch --export=ALL,SEED=1,ALG=QPLEX jobs/train_jed.sbatch
+  sbatch --array=0-7 jobs/train_jed.sbatch
   sbatch jobs/train_jed.sbatch --difficulty 1 --use-heuristic False
 
 Default allocation:
-  partition=standard, qos=serial, nodes=1, cpus=72, mem-per-cpu=7000M,
+  partition=academic, qos=academic, nodes=1, cpus=72, mem-per-cpu=7000M,
   walltime=7 days.
 
 Common environment overrides:
@@ -40,6 +41,8 @@ Environment setup:
 
 Notes:
   JED has no GPUs, so CUDA defaults to false.
+  Defaults reserve a few CPUs for the learner/logger and use the rest as envs.
+  For Slurm arrays, SEED defaults to SLURM_ARRAY_TASK_ID.
   Keep N_STEPS and EVAL_FREQ divisible by N_ENVS for MAPPO/LAGRMAPPO.
   Keep TRAIN_FREQ and EVAL_FREQ divisible by N_ENVS for QPLEX.
 EOF
@@ -60,6 +63,13 @@ add_arg() {
   if [ -n "${value}" ]; then
     ARGS+=("${flag}" "${value}")
   fi
+}
+
+default_rollout_steps() {
+  local envs="$1"
+  local target="${TARGET_ROLLOUT_BATCH:-20000}"
+  local min_steps
+  min_steps="$(((target + envs - 1) / envs))"
 }
 
 activate_conda() {
@@ -99,8 +109,9 @@ print_resource_summary() {
   echo "========== JED/Slurm resource summary =========="
   echo "Job id: ${SLURM_JOB_ID:-local}"
   echo "Job name: ${SLURM_JOB_NAME:-marl2grid_jed}"
-  echo "Partition: ${SLURM_JOB_PARTITION:-standard}"
-  echo "QOS: ${SLURM_JOB_QOS:-serial}"
+  echo "Array task id: ${SLURM_ARRAY_TASK_ID:-none}"
+  echo "Partition: ${SLURM_JOB_PARTITION:-academic}"
+  echo "QOS: ${SLURM_JOB_QOS:-academic}"
   echo "Nodes: ${SLURM_JOB_NUM_NODES:-1}"
   echo "Node list: ${SLURM_JOB_NODELIST:-$(hostname)}"
   echo "Tasks: ${SLURM_NTASKS:-1}"
@@ -214,26 +225,34 @@ if [ -n "${SLURM_JOB_ID:-}" ] && [ -d "/tmp/${SLURM_JOB_ID}" ]; then
 fi
 
 SLURM_CPUS="${SLURM_CPUS_PER_TASK:-72}"
+set_default RESERVED_CPUS 8
 set_default CUDA false
 set_default CHECKPOINT true
-set_default N_THREADS 1
-set_default N_ENVS "${SLURM_CPUS}"
+set_default N_THREADS 4
+if [ -z "${N_ENVS:-}" ]; then
+  if [ "${SLURM_CPUS}" -gt "${RESERVED_CPUS}" ]; then
+    N_ENVS="$((SLURM_CPUS - RESERVED_CPUS))"
+  else
+    N_ENVS="${SLURM_CPUS}"
+  fi
+fi
 set_default PY_TIME_LIMIT 10020
 set_default ENV_ID bus14
 set_default ALG MAPPO
 set_default USE_HEURISTIC false
-set_default TRACK true
+set_default TRACK false
 set_default WANDB_ENTITY corentin-plumet-epfl
 set_default WANDB_PROJECT marl2grid
-set_default WANDB_MODE online
+set_default WANDB_MODE offline
 set_default TOTAL_TIMESTEPS 60000000
 set_default GAMMA 0.99
-set_default SEED 0
+set_default SEED "${SLURM_ARRAY_TASK_ID:-0}"
 
 case "${ALG^^}" in
   MAPPO)
-    set_default N_STEPS "$((N_ENVS * 4))"
-    set_default EVAL_FREQ "$((N_ENVS * 280))"
+    set_default N_STEPS "$(default_rollout_steps "${N_ENVS}")"
+    set_default EVAL_EVERY_ROLLOUTS 5
+    set_default EVAL_FREQ "$((N_ENVS * N_STEPS * EVAL_EVERY_ROLLOUTS))"
     set_default MAX_GRAD_NORM 10
     set_default UPDATE_EPOCHS 80
     set_default N_MINIBATCHES 4
@@ -244,8 +263,9 @@ case "${ALG^^}" in
     set_default NORM_REWARD true
     ;;
   LAGRMAPPO)
-    set_default N_STEPS "$((N_ENVS * 4))"
-    set_default EVAL_FREQ "$((N_ENVS * 280))"
+    set_default N_STEPS "$(default_rollout_steps "${N_ENVS}")"
+    set_default EVAL_EVERY_ROLLOUTS 5
+    set_default EVAL_FREQ "$((N_ENVS * N_STEPS * EVAL_EVERY_ROLLOUTS))"
     set_default CONSTRAINTS_TYPE 1
     set_default MAX_GRAD_NORM 10
     set_default UPDATE_EPOCHS 80
@@ -258,8 +278,9 @@ case "${ALG^^}" in
     set_default LAG_LR 0.05
     ;;
   QPLEX)
-    set_default EVAL_FREQ "$((N_ENVS * 280))"
+    set_default EVAL_EVERY_TRAINS 80
     set_default TRAIN_FREQ "$((N_ENVS * 4))"
+    set_default EVAL_FREQ "$((TRAIN_FREQ * EVAL_EVERY_TRAINS))"
     set_default TG_QNET_FREQ "$((N_ENVS * 40))"
     set_default BUFFER_SIZE 1000000
     set_default BATCH_SIZE 128
@@ -334,7 +355,11 @@ print_resource_summary
 print_python_summary
 echo "Algorithm: ${ALG}"
 echo "Vector envs: ${N_ENVS}"
+echo "Reserved CPUs: ${RESERVED_CPUS}"
 echo "Torch threads: ${N_THREADS}"
+echo "Rollout steps: ${N_STEPS:-n/a}"
+echo "Eval frequency: ${EVAL_FREQ}"
+echo "Tracking: ${TRACK}, W&B mode: ${WANDB_MODE}"
 echo "Python time limit: ${PY_TIME_LIMIT} minutes"
 echo "Command: ${RUNNER[*]} ${ARGS[*]}"
 
