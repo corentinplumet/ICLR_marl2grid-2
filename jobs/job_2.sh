@@ -4,9 +4,9 @@
 #SBATCH --error=routput_jobs/job_downloaded_err_%j.log
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=30
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=06:00:00
 #SBATCH --partition=gpu
 #SBATCH --qos=normal
 #SBATCH --gres=gpu:1
@@ -75,8 +75,8 @@ INIT_DO_NOTHING_PROB="${INIT_DO_NOTHING_PROB:-0.5}"
 NORM_REWARD="${NORM_REWARD:-true}"
 SEED="${SEED:-0}"
 
-read -r -a ACTOR_LAYER_ARGS <<< "${ACTOR_LAYERS}"
-read -r -a CRITIC_LAYER_ARGS <<< "${CRITIC_LAYERS}"
+# read -r -a ACTOR_LAYER_ARGS <<< "${ACTOR_LAYERS}"
+# read -r -a CRITIC_LAYER_ARGS <<< "${CRITIC_LAYERS}"
 
 CMD=(
   python -u main.py

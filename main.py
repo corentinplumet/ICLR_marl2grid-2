@@ -1,3 +1,4 @@
+import os
 from time import time
 
 from alg.qplex.core import QPLEX
@@ -21,11 +22,14 @@ def main(args: Namespace) -> None:
         args (Namespace): Command line arguments parsed by argparse.
 
     Raises:
-        AssertionError: If time limit exceeds 2800 minutes or if number of environments is less than 1.
+        AssertionError: If time limit exceeds the configured maximum or if number of environments is less than 1.
         AssertionError: If the specified algorithm is not supported.
     """
     print("start main")
-    assert args.time_limit <= 2800, f"Invalid time limit: {args.time_limit}. Timeout limit is : 2800"
+    max_time_limit = float(os.environ.get("MAX_TIME_LIMIT_MINUTES", "2800"))
+    assert args.time_limit <= max_time_limit, (
+        f"Invalid time limit: {args.time_limit}. Timeout limit is : {max_time_limit}"
+    )
     start_time = time()
     
     # Update args with environment arguments
