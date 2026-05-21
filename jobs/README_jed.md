@@ -88,6 +88,16 @@ the environment and pass it at submission time with `JED_MODULES`.
 sbatch jobs/job_jed.sh
 ```
 
+Submit the 8-node distributed MAPPO run:
+
+```bash
+sbatch jobs/job_jed_8nodes.sh
+```
+
+This starts one MAPPO rank per node. Each rank runs its own local vector envs;
+gradients, reward normalization, and eval observation stats are synchronized.
+Distributed checkpoint resume is not implemented yet.
+
 Submit a different config:
 
 ```bash

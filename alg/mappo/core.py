@@ -3,11 +3,20 @@ from time import time
 from .agent import Actor, Critic
 from .config import get_alg_args
 from common.checkpoint import CheckpointSaver
+from common.distributed import (
+    all_reduce_mean_grads,
+    all_reduce_mean_tensor,
+    gather_normalized_rewards,
+    gather_obs_stats,
+    get_distributed_info,
+    normalize_advantages,
+)
 from common.imports import *
 from common.logger import Logger
 from common.utils import (
     ReturnNormalizer,
     cast_np_to_tensors,
+    set_random_seed,
     stack_agent_obs_by_env,
 )
 from env.eval import Evaluator
@@ -37,6 +46,13 @@ class MAPPO:
         if not ckpt.resumed:
             args = ap.Namespace(**vars(args), **vars(get_alg_args()))
 
+        dist_info = get_distributed_info()
+        distributed = bool(getattr(args, "distributed", False) and dist_info.enabled)
+        is_rank0 = not distributed or dist_info.is_rank0
+        local_n_envs = args.n_envs
+        global_n_envs = local_n_envs * dist_info.world_size if distributed else local_n_envs
+        args.global_n_envs = global_n_envs
+
         assert args.n_steps % args.n_envs == 0, (
             f"Invalid train frequency (n_steps): {args.n_steps}. Must be multiple of n_envs {args.n_envs}"
         )
@@ -54,9 +70,10 @@ class MAPPO:
         ]
 
         # Initialize the rollout, actor, critic, optimizer, and buffer
-        batch_size = int(args.n_envs * args.n_steps)
+        batch_size = int(local_n_envs * args.n_steps)
+        global_batch_size = int(global_n_envs * args.n_steps)
         minibatch_size = int(batch_size // args.n_minibatches)
-        n_rollouts = args.total_timesteps // batch_size
+        n_rollouts = args.total_timesteps // global_batch_size
         init_rollout = 1 if not ckpt.resumed else ckpt.loaded_run["last_rollout"]
 
         # Determine action space type
@@ -85,6 +102,11 @@ class MAPPO:
             actor_optim.load_state_dict(ckpt.loaded_run["actor_optim"])
             critic_optim.load_state_dict(ckpt.loaded_run["critic_optim"])
 
+        if distributed:
+            # Models are initialized from the same seed on every rank; after that,
+            # decorrelate action sampling and minibatch shuffles across nodes.
+            set_random_seed(args.seed + dist_info.rank)
+
         joint_obs_size = (
             sum(space.shape[0] for space in envs.observation_space.values())
             if args.decentralized
@@ -107,21 +129,22 @@ class MAPPO:
             logprobs[id] = th.zeros((args.n_steps, args.n_envs)).to(device)
             rewards[id] = th.zeros((args.n_steps, args.n_envs)).to(device)
 
-        assert args.eval_freq % args.n_envs == 0, (
-            f"Invalid eval frequency: {args.eval_freq}. Must be multiple of n_envs {args.n_envs}"
+        assert args.eval_freq % global_n_envs == 0, (
+            f"Invalid eval frequency: {args.eval_freq}. Must be multiple of global n_envs {global_n_envs}"
         )
-        logger = Logger(run_name, args) if args.track else None
-        evaluator = Evaluator(args, logger, device)
+        logger = Logger(run_name, args) if args.track and is_rank0 else None
+        evaluator = Evaluator(args, logger, device) if is_rank0 else None
 
         global_step = 0 if not ckpt.resumed else ckpt.loaded_run["global_step"]
         start_time = start_time
         last_ckpt_time = start_time  # <-- track last checkpoint timestamp
 
         reward_normalizer = (
-            ReturnNormalizer(args.n_envs, args.gamma) if getattr(args, "norm_reward", False) else None
+            ReturnNormalizer(global_n_envs, args.gamma) if getattr(args, "norm_reward", False) else None
         )
         next_obs, _ = envs.reset()
         next_obs = cast_np_to_tensors(next_obs, device)
+        iteration = init_rollout - 1
         try:
             for iteration in range(init_rollout, n_rollouts + 1):
                 # Annealing the rate if instructed to do so
@@ -131,7 +154,7 @@ class MAPPO:
                     critic_optim.param_groups[0]["lr"] = frac * args.critic_lr
 
                 for step in range(0, args.n_steps):
-                    global_step += args.n_envs
+                    global_step += global_n_envs
 
                     action, logprob = {}, {}
                     for agent in agent_ids:
@@ -167,8 +190,10 @@ class MAPPO:
                         )
                         # Reward is identical across agents in this env (joint reward),
                         # so normalize once and broadcast to every agent's stream.
-                        normed = reward_normalizer(
-                            np.asarray(reward[agent_ids[0]]), done_np
+                        normed = gather_normalized_rewards(
+                            reward_normalizer,
+                            np.asarray(reward[agent_ids[0]]),
+                            done_np,
                         )
                         for agent in agent_ids:
                             reward[agent] = normed
@@ -198,9 +223,14 @@ class MAPPO:
                                 ).to(device)
 
                     if global_step % args.eval_freq == 0:
-                        evaluator.env.env.set_obs_stats(envs.get_obs_stats())
-                        evaluator.evaluate(global_step, actors)
-                        if args.verbose:
+                        global_obs_stats = gather_obs_stats(envs.get_obs_stats())
+                        if is_rank0:
+                            assert evaluator is not None
+                            evaluator.env.env.set_obs_stats(global_obs_stats)
+                            evaluator.evaluate(global_step, actors)
+                        if distributed:
+                            th.distributed.barrier()
+                        if args.verbose and is_rank0:
                             print(f"SPS={int(global_step / (time() - start_time))}")
 
                 # Bootstrap value if not done
@@ -235,7 +265,7 @@ class MAPPO:
                     returns = advantages + values
 
                 # --- HOURLY CHECKPOINT (wall clock) ---
-                if time() - last_ckpt_time >= 3600:
+                if is_rank0 and time() - last_ckpt_time >= 3600:
                     ckpt.set_record(
                         args,
                         actors,
@@ -299,9 +329,7 @@ class MAPPO:
 
                             mb_advantages = b_advantages[mb_inds]
                             if args.norm_adv:
-                                mb_advantages = (
-                                    mb_advantages - mb_advantages.mean()
-                                ) / (mb_advantages.std() + 1e-8)
+                                mb_advantages = normalize_advantages(mb_advantages)
 
                             # Policy loss
                             pg_loss1 = -mb_advantages * ratio
@@ -315,6 +343,7 @@ class MAPPO:
 
                             actor_optim.zero_grad()
                             pg_loss.backward()
+                            all_reduce_mean_grads(actors[agent].parameters())
                             nn.utils.clip_grad_norm_(
                                 actors[agent].parameters(), args.max_grad_norm
                             )
@@ -326,7 +355,10 @@ class MAPPO:
                             train_metrics[agent]["approx_kl"].append(float(approx_kl.detach()))
                             train_metrics[agent]["clipfrac"].append(float(clipfracs[-1]))
 
-                        if args.target_kl is not None and approx_kl > args.target_kl:
+                        stop_kl = approx_kl
+                        if distributed:
+                            stop_kl = all_reduce_mean_tensor(stop_kl.detach().clone())
+                        if args.target_kl is not None and float(stop_kl) > args.target_kl:
                             break
 
                 # Optimizing the centralized value network once on the shared joint return.
@@ -355,6 +387,7 @@ class MAPPO:
 
                         critic_optim.zero_grad()
                         v_loss.backward()
+                        all_reduce_mean_grads(critic.parameters())
                         nn.utils.clip_grad_norm_(
                             critic.parameters(), args.max_grad_norm
                         )
@@ -362,7 +395,7 @@ class MAPPO:
                         v_loss_history.append(float(v_loss.detach()))
 
                 # Log per-rollout training metrics to wandb
-                if logger is not None:
+                if logger is not None and is_rank0:
                     metrics_to_log: Dict[str, float] = {
                         "train/lr_actor": float(actor_optim.param_groups[0]["lr"]),
                         "train/lr_critic": float(critic_optim.param_groups[0]["lr"]),
@@ -394,7 +427,7 @@ class MAPPO:
                     break
 
         finally:
-            if args.checkpoint:
+            if args.checkpoint and is_rank0:
                 # Save the checkpoint and logger data
                 ckpt.set_record(
                     args,
