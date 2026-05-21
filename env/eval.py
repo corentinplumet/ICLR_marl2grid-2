@@ -40,7 +40,7 @@ class Evaluator:
         self.use_heuristic = args.use_heuristic
         #if self.use_heuristic: self.env.set_n_rewards(len(self.reward_tags))
             
-    def evaluate(self, glob_step: int, actors: Dict, eval_ep: int = 3) -> None:
+    def evaluate(self, glob_step: int, actors: Dict, eval_ep: int = 10) -> None:
         """Evaluate the model over a specified number of episodes.
 
         Args:
