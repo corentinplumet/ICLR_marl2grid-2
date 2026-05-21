@@ -32,7 +32,7 @@ EOF
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="${PROJECT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}}"
 cd "${PROJECT_DIR}"
 
 CONFIG="${JED_CONFIG:-configs/jed/mappo_bus14_academic.toml}"
