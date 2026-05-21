@@ -29,13 +29,13 @@ alg = "MAPPO"
 seed = 0
 verbose = true
 exp_tag = ""
-track = false
+track = true
 wandb_project = "marl2grid"
 wandb_entity = "corentin-plumet-epfl"
-wandb_mode = "offline"
+wandb_mode = "online"
 th_deterministic = true
 cuda = false
-n_threads = 4
+n_threads = 1
 
 env_id = "bus14"
 action_type = "topology"
