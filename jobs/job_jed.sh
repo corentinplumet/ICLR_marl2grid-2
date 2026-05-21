@@ -1,16 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=marl2grid_jed
 #SBATCH --mail-user=corentin.plumet@epfl.ch
-#SBATCH --mail-type=END,FAIL
 #SBATCH --partition=academic
 #SBATCH --qos=academic
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=72
 #SBATCH --mem-per-cpu=7000M
-#SBATCH --time=7-00:00:00
-#SBATCH --output=slurm-%x-%j.out
-#SBATCH --error=slurm-%x-%j.err
+#SBATCH --time=08:00:00
+#SBATCH --output=routput_jobs/job_out_%j.log
+#SBATCH --error=routput_jobs/job_err_%j.log
 
 set -euo pipefail
 
