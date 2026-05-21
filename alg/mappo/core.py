@@ -255,6 +255,12 @@ class MAPPO:
                 b_advantages = advantages.reshape(-1)
                 b_returns = returns.reshape(-1)
 
+                if device.type == "cuda":
+                    th.cuda.synchronize()
+                elif device.type == "mps" and hasattr(th, "mps"):
+                    th.mps.synchronize()
+                update_start_time = time()
+
                 # Per-rollout training metric accumulators
                 train_metrics = {
                     ag: {"entropy": [], "pg_loss": [], "approx_kl": [], "clipfrac": []}
@@ -361,12 +367,25 @@ class MAPPO:
                         critic_optim.step()
                         v_loss_history.append(float(v_loss.detach()))
 
+                if device.type == "cuda":
+                    th.cuda.synchronize()
+                elif device.type == "mps" and hasattr(th, "mps"):
+                    th.mps.synchronize()
+                update_elapsed = time() - update_start_time
+                if args.verbose:
+                    print(
+                        f"NN update at step {global_step} took {update_elapsed:.2f}s "
+                        f"({args.update_epochs} epochs, {args.n_minibatches} minibatches, batch={batch_size})",
+                        flush=True,
+                    )
+
                 # Log per-rollout training metrics to wandb
                 if logger is not None:
                     metrics_to_log: Dict[str, float] = {
                         "train/lr_actor": float(actor_optim.param_groups[0]["lr"]),
                         "train/lr_critic": float(critic_optim.param_groups[0]["lr"]),
                         "train/v_loss": float(np.mean(v_loss_history)) if v_loss_history else 0.0,
+                        "train/update_time_sec": update_elapsed,
                     }
                     for ag in agent_ids:
                         m = train_metrics[ag]
