@@ -36,7 +36,12 @@ class AsyncMultiAgentVecEnv:
         return self._stack_dicts(obs), list(infos)
 
     def step_async(self, actions: List[Dict[str, Any]]):
-        # Have to split the actions dict into a list of dicts (one for each env)
+        # Have to split the actions dict into a list of dicts (one for each env).
+        # Move any tensors to CPU first — multiprocessing pipes can't share non-CPU storage.
+        actions = {
+            k: v.detach().cpu() if isinstance(v, th.Tensor) else v
+            for k, v in actions.items()
+        }
         for remote, action in zip(self.remotes, split_action_tensor_dict(actions)):
             remote.send(("step", action))
         self.waiting = True
@@ -67,6 +72,46 @@ class AsyncMultiAgentVecEnv:
         for p in self.ps:
             p.join()
         self.closed = True
+
+    def get_obs_stats(self):
+        """Collect obs_stats from every worker and merge them with parallel Welford.
+
+        Returns a dict {agent_id: {"count": float, "mean": np.ndarray, "var": np.ndarray}}
+        where `var` is the running sum of squared deviations (M2), matching the
+        representation MAEnvWrapper uses internally.
+        """
+        for remote in self.remotes:
+            remote.send(("get_obs_stats", None))
+        per_worker = [remote.recv() for remote in self.remotes]
+
+        merged: Dict[str, Dict[str, Any]] = {}
+        for stats in per_worker:
+            for agent_id, s in stats.items():
+                if s["mean"] is None:
+                    continue
+                if agent_id not in merged:
+                    merged[agent_id] = {
+                        "count": float(s["count"]),
+                        "mean": s["mean"].copy(),
+                        "var": s["var"].copy(),
+                    }
+                    continue
+                a = merged[agent_id]
+                n_a = a["count"]
+                n_b = float(s["count"])
+                n = n_a + n_b
+                delta = s["mean"] - a["mean"]
+                a["mean"] = a["mean"] + delta * (n_b / n)
+                a["var"] = a["var"] + s["var"] + (delta ** 2) * (n_a * n_b / n)
+                a["count"] = n
+        return merged
+
+    def set_obs_stats(self, stats):
+        """Broadcast an obs_stats dict to every worker."""
+        for remote in self.remotes:
+            remote.send(("set_obs_stats", stats))
+        for remote in self.remotes:
+            remote.recv()
 
     def _stack_dicts(self, dicts: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
         # Transpose list of dicts into dict of lists, then stack
@@ -99,6 +144,11 @@ class AsyncMultiAgentVecEnv:
                     break
                 elif cmd == "get_spaces":
                     remote.send((env.observation_space, env.action_space))
+                elif cmd == "get_obs_stats":
+                    remote.send(env.get_obs_stats())
+                elif cmd == "set_obs_stats":
+                    env.set_obs_stats(data)
+                    remote.send(None)
                 else:
                     raise NotImplementedError(f"Unknown command: {cmd}")
         except KeyboardInterrupt:
