@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,38 @@ def cli_value(value: Any) -> list[str]:
 
 def format_value(value: Any, context: dict[str, str]) -> str:
     return str(value).format(**context)
+
+
+def command_output(command: list[str]) -> str:
+    try:
+        return subprocess.check_output(
+            command,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return ""
+
+
+def git_metadata() -> dict[str, str]:
+    branch = command_output(["git", "branch", "--show-current"]) or "DETACHED"
+    commit = command_output(["git", "rev-parse", "--short", "HEAD"]) or "unknown"
+    dirty = "yes" if command_output(["git", "status", "--short"]) else "no"
+    return {"branch": branch, "commit": commit, "dirty": dirty}
+
+
+def slurm_time_limit() -> str:
+    job_id = os.environ.get("SLURM_JOB_ID")
+    if job_id and shutil.which("scontrol"):
+        job_desc = command_output(["scontrol", "show", "job", job_id])
+        match = re.search(r"\bTimeLimit=([^\s]+)", job_desc)
+        if match:
+            return match.group(1)
+
+    time_limit = os.environ.get("SLURM_TIMELIMIT")
+    if time_limit:
+        return f"{time_limit} minutes"
+    return "unknown"
 
 
 def build_args(config_args: dict[str, Any], extra_args: list[str]) -> list[str]:
@@ -205,6 +238,12 @@ def main() -> int:
     print(f"QOS: {os.environ.get('SLURM_JOB_QOS', 'academic')}")
     print(f"Nodes: {os.environ.get('SLURM_JOB_NUM_NODES', '1')}")
     print(f"CPUs per task: {os.environ.get('SLURM_CPUS_PER_TASK', '72')}")
+    print(f"Slurm time limit: {slurm_time_limit()}")
+    print(f"Python time limit: {config_args.get('time_limit', 'unset')} minutes")
+    git_info = git_metadata()
+    print(f"Git branch: {git_info['branch']}")
+    print(f"Git commit: {git_info['commit']}")
+    print(f"Git dirty: {git_info['dirty']}")
     print(f"Command: {' '.join(command)}")
     print("====================================")
 
