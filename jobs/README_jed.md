@@ -14,7 +14,7 @@ The launcher requests one full academic JED node:
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=72
 #SBATCH --mem-per-cpu=7000M
-#SBATCH --time=12:00:00
+#SBATCH --time=08:00:00
 ```
 
 This is the largest useful allocation for one training process in the current

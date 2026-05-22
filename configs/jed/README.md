@@ -1,8 +1,7 @@
 # JED Run Configs
 
 These TOML files contain the parameters for a JED training run.
-
-
+ 
 Submit the default MAPPO config:
 
 ```bash
