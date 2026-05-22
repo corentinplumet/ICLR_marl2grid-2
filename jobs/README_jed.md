@@ -7,7 +7,6 @@ academic users. It reads the run parameters from TOML files in `configs/jed/`.
 
 The launcher requests one full academic JED node:
 
-
 ```bash
 #SBATCH --partition=academic
 #SBATCH --qos=academic
