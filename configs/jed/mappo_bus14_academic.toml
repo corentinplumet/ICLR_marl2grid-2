@@ -1,0 +1,74 @@
+[run]
+name = "mappo_bus14_academic"
+run_dir = "outputs/jed-{job_id}"
+seed_from_slurm_array = true
+extra_args = []
+
+[launcher]
+use_srun = true
+cpu_bind = "cores"
+print_python_summary = true
+
+[environment]
+PYTHONUNBUFFERED = "1"
+OMP_NUM_THREADS = "1"
+MKL_NUM_THREADS = "1"
+OPENBLAS_NUM_THREADS = "1"
+NUMEXPR_NUM_THREADS = "1"
+VECLIB_MAXIMUM_THREADS = "1"
+MAX_TIME_LIMIT_MINUTES = "10080"
+MPLCONFIGDIR = "{run_dir}/matplotlib"
+WANDB_DIR = "{run_dir}/wandb"
+XDG_CACHE_HOME = "{run_dir}/cache"
+
+[args]
+time_limit = 10020
+checkpoint = true
+resume_run_name = ""
+alg = "MAPPO"
+seed = 0
+verbose = true
+exp_tag = ""
+track = true
+wandb_project = "marl2grid"
+wandb_entity = "corentin-plumet-epfl"
+wandb_mode = "online"
+th_deterministic = true
+cuda = false
+n_threads = 1
+
+env_id = "bus14"
+action_type = "topology"
+difficulty = 0
+decentralized = true
+n1_reward = false
+env_config_path = "scenario.json"
+norm_obs = true
+use_heuristic = false
+heuristic_type = "idle"
+optimize_mem = true
+constraints_type = 0
+
+n_envs = 120
+n_steps = 360
+total_timesteps = 60000000
+eval_freq = 3600
+actor_layers = [256, 256]
+critic_layers = [256, 256]
+actor_act_fn = "relu"
+critic_act_fn = "relu"
+actor_lr = 0.00003
+critic_lr = 0.00003
+anneal_lr = true
+gamma = 0.99
+gae_lambda = 0.95
+update_epochs = 80
+n_minibatches = 4
+max_grad_norm = 10.0
+norm_adv = true
+clip_coef = 0.2
+clip_vfloss = true
+entropy_coef = 0.01
+vf_coef = 0.5
+init_do_nothing_prob = 0.5
+norm_reward = true
