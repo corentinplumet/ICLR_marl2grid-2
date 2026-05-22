@@ -3,6 +3,7 @@
 `jobs/job_jed.sh` launches this repository's CPU training on EPFL SCITAS JED for
 academic users. It reads the run parameters from TOML files in `configs/jed/`.
 
+
 ## Resource choice
 
 The launcher requests one full academic JED node:
