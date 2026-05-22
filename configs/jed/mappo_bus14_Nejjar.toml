@@ -22,8 +22,8 @@ WANDB_DIR = "{run_dir}/wandb"
 XDG_CACHE_HOME = "{run_dir}/cache"
 
 [args]
-time_limit = 1300
-checkpoint = false
+time_limit = 1440
+checkpoint = true
 resume_run_name = ""
 alg = "MAPPO"
 seed = 0
@@ -33,12 +33,11 @@ track = true
 wandb_project = "marl2grid"
 wandb_entity = "corentin-plumet-epfl"
 wandb_mode = "online"
-th_deterministic = false
-cuda = true
-n_threads = 20
+th_deterministic = true
+cuda = false
+n_threads = 1
 
 env_id = "bus14"
-n_envs = 20
 action_type = "topology"
 difficulty = 0
 decentralized = true
@@ -50,9 +49,10 @@ heuristic_type = "idle"
 optimize_mem = true
 constraints_type = 0
 
-total_timesteps = 60000000
+n_envs = 20
 n_steps = 2000
 eval_freq = 40000
+total_timesteps = 60000000
 actor_layers = [256, 256, 256]
 critic_layers = [256, 256, 256]
 actor_act_fn = "relu"
