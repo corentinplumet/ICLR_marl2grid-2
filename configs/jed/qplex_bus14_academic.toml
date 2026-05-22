@@ -1,0 +1,73 @@
+[run]
+name = "qplex_bus14_academic"
+run_dir = "outputs/jed-{job_id}"
+seed_from_slurm_array = true
+extra_args = []
+
+[launcher]
+use_srun = true
+cpu_bind = "cores"
+print_python_summary = true
+
+[environment]
+PYTHONUNBUFFERED = "1"
+OMP_NUM_THREADS = "1"
+MKL_NUM_THREADS = "1"
+OPENBLAS_NUM_THREADS = "1"
+NUMEXPR_NUM_THREADS = "1"
+VECLIB_MAXIMUM_THREADS = "1"
+MAX_TIME_LIMIT_MINUTES = "10080"
+MPLCONFIGDIR = "{run_dir}/matplotlib"
+WANDB_DIR = "{run_dir}/wandb"
+XDG_CACHE_HOME = "{run_dir}/cache"
+
+[args]
+time_limit = 10020
+checkpoint = true
+resume_run_name = ""
+alg = "QPLEX"
+seed = 0
+verbose = true
+exp_tag = ""
+track = false
+wandb_project = "marl2grid"
+wandb_entity = "corentin-plumet-epfl"
+wandb_mode = "offline"
+th_deterministic = true
+cuda = false
+n_threads = 4
+
+env_id = "bus14"
+n_envs = 64
+action_type = "topology"
+difficulty = 0
+decentralized = true
+n1_reward = false
+env_config_path = "scenario.json"
+norm_obs = true
+use_heuristic = false
+heuristic_type = "idle"
+optimize_mem = true
+constraints_type = 0
+
+total_timesteps = 60000000
+learning_starts = 10
+eval_freq = 20480
+layers = [256, 256]
+act_fn = "relu"
+lr = 0.00003
+train_freq = 256
+gamma = 0.99
+tau = 1.0
+tg_qnet_freq = 2560
+eps_start = 1.0
+eps_end = 0.05
+eps_decay_frac = 0.5
+buffer_size = 1000000
+batch_size = 128
+transf_embed_dim = 256
+n_heads = 4
+mix_embed_layers = 2
+mix_embed_dim = 256
+is_minus_one = true
+weighted_head = true
