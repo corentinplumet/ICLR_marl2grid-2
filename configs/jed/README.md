@@ -1,6 +1,7 @@
 # JED Run Configs
 
 These TOML files contain the parameters for a JED training run.
+ 
 
 Submit the default MAPPO config:
 
@@ -12,12 +13,6 @@ Submit a specific config:
 
 ```bash
 sbatch jobs/job_jed.sh configs/jed/qplex_bus14_academic.toml
-```
-
-Submit the 8-node distributed MAPPO config:
-
-```bash
-sbatch jobs/job_jed_8nodes.sh
 ```
 
 Append one-off command-line overrides after the config path:
@@ -39,8 +34,3 @@ If you override `N_ENVS`, also override the dependent frequencies:
 
 - MAPPO/LAGRMAPPO: `N_STEPS` and `EVAL_FREQ`
 - QPLEX: `TRAIN_FREQ`, `EVAL_FREQ`, and usually `TG_QNET_FREQ`
-
-The 8-node config uses one Python rank per node. Each rank creates `N_ENVS`
-local environment workers, and MAPPO synchronizes reward normalization,
-observation statistics for eval, and averaged gradients across all ranks.
-Resuming distributed MAPPO checkpoints is intentionally blocked for now.

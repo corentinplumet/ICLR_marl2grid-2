@@ -7,6 +7,7 @@ academic users. It reads the run parameters from TOML files in `configs/jed/`.
 
 The launcher requests one full academic JED node:
 
+
 ```bash
 #SBATCH --partition=academic
 #SBATCH --qos=academic
@@ -14,7 +15,7 @@ The launcher requests one full academic JED node:
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=72
 #SBATCH --mem-per-cpu=7000M
-#SBATCH --time=7-00:00:00
+#SBATCH --time=08:00:00
 ```
 
 This is the largest useful allocation for one training process in the current
@@ -87,16 +88,6 @@ the environment and pass it at submission time with `JED_MODULES`.
 ```bash
 sbatch jobs/job_jed.sh
 ```
-
-Submit the 8-node distributed MAPPO run:
-
-```bash
-sbatch jobs/job_jed_8nodes.sh
-```
-
-This starts one MAPPO rank per node. Each rank runs its own local vector envs;
-gradients, reward normalization, and eval observation stats are synchronized.
-Distributed checkpoint resume is not implemented yet.
 
 Submit a different config:
 

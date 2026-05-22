@@ -62,20 +62,6 @@ def format_value(value: Any, context: dict[str, str]) -> str:
     return str(value).format(**context)
 
 
-def first_slurm_host() -> str:
-    nodelist = os.environ.get("SLURM_JOB_NODELIST")
-    if not nodelist:
-        return "127.0.0.1"
-    try:
-        output = subprocess.check_output(
-            ["scontrol", "show", "hostnames", nodelist],
-            text=True,
-        )
-        return output.splitlines()[0].strip()
-    except Exception:
-        return "127.0.0.1"
-
-
 def build_args(config_args: dict[str, Any], extra_args: list[str]) -> list[str]:
     args: list[str] = []
     for key, value in config_args.items():
@@ -201,27 +187,13 @@ def main() -> int:
     command = [sys.executable, "-u", "main.py", *main_args]
 
     if launcher.get("use_srun", False) and os.environ.get("SLURM_JOB_ID") and shutil.which("srun"):
-        srun_command = ["srun"]
-        if launcher.get("distributed", False):
-            os.environ.setdefault("MASTER_ADDR", first_slurm_host())
-            os.environ.setdefault("MASTER_PORT", str(launcher.get("master_port", 29500)))
-            srun_command.extend(
-                [
-                    f"--nodes={launcher.get('nodes', os.environ.get('SLURM_JOB_NUM_NODES', '1'))}",
-                    f"--ntasks={launcher.get('ntasks', os.environ.get('SLURM_NTASKS', '1'))}",
-                    f"--ntasks-per-node={launcher.get('ntasks_per_node', 1)}",
-                    f"--cpus-per-task={launcher.get('cpus_per_task', os.environ.get('SLURM_CPUS_PER_TASK', '72'))}",
-                ]
-            )
-        else:
-            srun_command.extend(
-                [
-                    "--ntasks=1",
-                    f"--cpus-per-task={os.environ.get('SLURM_CPUS_PER_TASK', '72')}",
-                ]
-            )
-        srun_command.append(f"--cpu-bind={launcher.get('cpu_bind', 'cores')}")
-        command = [*srun_command, *command]
+        command = [
+            "srun",
+            "--ntasks=1",
+            f"--cpus-per-task={os.environ.get('SLURM_CPUS_PER_TASK', '72')}",
+            f"--cpu-bind={launcher.get('cpu_bind', 'cores')}",
+            *command,
+        ]
 
     print("========== JED config run ==========")
     print(f"Config: {config_path}")
