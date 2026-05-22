@@ -33,3 +33,8 @@ If you override `N_ENVS`, also override the dependent frequencies:
 
 - MAPPO/LAGRMAPPO: `N_STEPS` and `EVAL_FREQ`
 - QPLEX: `TRAIN_FREQ`, `EVAL_FREQ`, and usually `TG_QNET_FREQ`
+
+
+```bash
+sbatch jobs/job_jed.sh configs/jed/mappo_bus14_best.toml
+```
