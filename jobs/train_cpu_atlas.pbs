@@ -1,0 +1,370 @@
+#!/bin/bash
+# NUS Atlas PBS launcher adapted from the Izar Slurm launcher.
+#PBS -P test_project
+#PBS -N marl2grid_cpu
+#PBS -q parallel
+#PBS -l select=1:ncpus=40:mem=32gb
+#PBS -l walltime=3:00:00
+#PBS -j oe
+#PBS -V
+
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'EOF'
+Usage:
+  qsub -V jobs/train_cpu_atlas.pbs
+  qsub -V -- jobs/train_cpu_atlas.pbs [preset] [main.py args...]
+  qsub -V -v PRESET=mappo14,SEED=0 jobs/train_cpu_atlas.pbs
+
+Presets:
+  mappo14
+  mappo14_fast_noheuristic
+  qplex14
+  lagrmappo14
+  table5_mappo14
+  table5_mappo14_fullobs
+  table5_qplex14
+  table5_lagrmappo14_l
+  table5_lagrmappo14_o
+  table5_real_mappo14
+  table5_real_qplex14
+  table5_real_lagrmappo14_l
+  table5_real_lagrmappo14_o
+
+Examples:
+  Smoke test with a print:
+    N_ENVS=1 TOTAL_TIMESTEPS=20 TRACK=False CHECKPOINT=False EXTRA_ARGS="--n-steps 20 --eval-freq 20 --n-minibatches 1 --update-epochs 1 --norm-adv False --use-heuristic False" qsub -V jobs/train_cpu_atlas.pbs
+
+  Default CPU MAPPO on bus14:
+    qsub -V jobs/train_cpu_atlas.pbs
+
+  No-heuristic preset:
+    PRESET=mappo14_fast_noheuristic SEED=0 qsub -V jobs/train_cpu_atlas.pbs
+
+Environment overrides:
+  PRESET, PROJECT_DIR, VENV_PATH, CONDA_ENV_NAME, N_ENVS, N_STEPS, EVAL_FREQ,
+  PY_TIME_LIMIT, CUDA, CHECKPOINT, TOTAL_TIMESTEPS, SEED, TRACK, DECENTRALIZED,
+  USE_HEURISTIC, WANDB_ENTITY, WANDB_PROJECT, WANDB_MODE, EXTRA_ARGS
+EOF
+  exit 0
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SUBMIT_DIR="${PBS_O_WORKDIR:-${PWD}}"
+PROJECT_DIR="${PROJECT_DIR:-${SUBMIT_DIR}}"
+if [ "$(basename "${PROJECT_DIR}")" = "jobs" ]; then
+  PROJECT_DIR="$(cd "${PROJECT_DIR}/.." && pwd)"
+elif [ ! -f "${PROJECT_DIR}/main.py" ]; then
+  PROJECT_DIR="${SCRIPT_PROJECT_DIR}"
+fi
+
+VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
+CONDA_ENV_NAME="${CONDA_ENV_NAME:-marl2grid}"
+
+set_default() {
+  local name="$1"
+  local value="$2"
+  if [ -z "${!name:-}" ]; then
+    printf -v "${name}" '%s' "${value}"
+  fi
+}
+
+set_table5_common() {
+  set_default ENV_ID bus14
+  set_default ALG "$1"
+  set_default USE_HEURISTIC false
+  set_default TRACK true
+  set_default TOTAL_TIMESTEPS 60000000
+  set_default GAMMA 0.99
+  set_default WANDB_MODE online
+  set_default WANDB_ENTITY corentin-plumet-epfl
+  set_default WANDB_PROJECT marl2grid
+}
+
+set_table5_mappo() {
+  set_default MAX_GRAD_NORM 10
+  set_default UPDATE_EPOCHS 80
+  set_default N_MINIBATCHES 4
+  set_default ACTOR_LR 3e-5
+  set_default CRITIC_LR 3e-5
+  set_default CLIP_COEF 0.2
+}
+
+set_table5_qplex() {
+  set_default TRAIN_FREQ 100
+  set_default TG_QNET_FREQ 2500
+  set_default BUFFER_SIZE 1000000
+  set_default BATCH_SIZE 128
+  set_default LR 3e-5
+  set_default EPS_DECAY_FRAC 0.5
+}
+
+set_table5_lagrmappo() {
+  set_default CONSTRAINTS_TYPE "$1"
+  set_default MAX_GRAD_NORM 10
+  set_default UPDATE_EPOCHS 80
+  set_default N_MINIBATCHES 4
+  set_default ACTOR_LR 3e-5
+  set_default CRITIC_LR 3e-5
+  set_default CLIP_COEF 0.2
+  set_default COST_THRESHOLD "$2"
+  set_default LAG_MUL 0.0
+  set_default LAG_LR 0.05
+}
+
+set_fast_table5_runtime() {
+  set_default N_THREADS 1
+  set_default N_ENVS 10
+  set_default N_STEPS 2000
+  set_default EVAL_FREQ 20000
+  set_default PY_TIME_LIMIT 1380
+  set_default CUDA false
+  set_default CHECKPOINT true
+}
+
+set_real_table5_runtime() {
+  set_default N_THREADS 1
+  set_default N_ENVS 10
+  set_default N_STEPS 2000
+  set_default EVAL_FREQ 20000
+  set_default PY_TIME_LIMIT 1380
+  set_default CUDA false
+  set_default CHECKPOINT true
+}
+
+PRESET_NAME="${PRESET:-mappo14}"
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    mappo14|mappo14_fast_noheuristic|qplex14|lagrmappo14|table5_mappo14|table5_mappo14_fullobs|table5_qplex14|table5_lagrmappo14_l|table5_lagrmappo14_o|table5_real_mappo14|table5_real_qplex14|table5_real_lagrmappo14_l|table5_real_lagrmappo14_o)
+      PRESET_NAME="$1"
+      shift
+      ;;
+    --*)
+      ;;
+    *)
+      echo "Unknown preset '$1'. Run: bash jobs/train_cpu_atlas.pbs --help" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+case "${PRESET_NAME}" in
+  mappo14)
+    set_default ENV_ID bus14
+    set_default ALG MAPPO
+    ;;
+  mappo14_fast_noheuristic)
+    set_default ENV_ID bus14
+    set_default ALG MAPPO
+    set_default USE_HEURISTIC false
+    set_default TRACK false
+    set_default N_ENVS 120
+    set_default N_STEPS 120
+    set_default EVAL_FREQ 20000
+    set_default PY_TIME_LIMIT 120
+    set_default CUDA false
+    set_default CHECKPOINT true
+    ;;
+  qplex14)
+    set_default ENV_ID bus14
+    set_default ALG QPLEX
+    ;;
+  lagrmappo14)
+    set_default ENV_ID bus14
+    set_default ALG LAGRMAPPO
+    set_default CONSTRAINTS_TYPE 1
+    ;;
+  table5_mappo14)
+    set_table5_common MAPPO
+    set_fast_table5_runtime
+    set_table5_mappo
+    ;;
+  table5_mappo14_fullobs)
+    set_table5_common MAPPO
+    set_fast_table5_runtime
+    set_table5_mappo
+    set_default DECENTRALIZED false
+    ;;
+  table5_qplex14)
+    set_table5_common QPLEX
+    set_fast_table5_runtime
+    set_table5_qplex
+    ;;
+  table5_lagrmappo14_l)
+    set_table5_common LAGRMAPPO
+    set_fast_table5_runtime
+    set_table5_lagrmappo 1 0
+    ;;
+  table5_lagrmappo14_o)
+    set_table5_common LAGRMAPPO
+    set_fast_table5_runtime
+    set_table5_lagrmappo 2 50
+    ;;
+  table5_real_mappo14)
+    set_table5_common MAPPO
+    set_real_table5_runtime
+    set_table5_mappo
+    ;;
+  table5_real_qplex14)
+    set_table5_common QPLEX
+    set_real_table5_runtime
+    set_table5_qplex
+    ;;
+  table5_real_lagrmappo14_l)
+    set_table5_common LAGRMAPPO
+    set_real_table5_runtime
+    set_table5_lagrmappo 1 0
+    ;;
+  table5_real_lagrmappo14_o)
+    set_table5_common LAGRMAPPO
+    set_real_table5_runtime
+    set_table5_lagrmappo 2 50
+    ;;
+esac
+
+has_cli_arg() {
+  local flag="$1"
+  shift
+  for arg in "$@"; do
+    case "${arg}" in
+      "${flag}"|"${flag}="*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+add_arg() {
+  local flag="$1"
+  local value="${2:-}"
+  if [ -n "${value}" ]; then
+    ARGS+=("${flag}" "${value}")
+  fi
+}
+
+print_resource_summary() {
+  echo "========== PBS resource summary =========="
+  echo "Job id: ${PBS_JOBID:-unset}"
+  echo "Job name: ${PBS_JOBNAME:-unset}"
+  echo "Queue: ${PBS_QUEUE:-unset}"
+  echo "Project: ${PBS_ACCOUNT:-test_project}"
+  echo "Submit dir: ${PBS_O_WORKDIR:-unset}"
+  echo "Current host: $(hostname)"
+  echo "Node file: ${PBS_NODEFILE:-unset}"
+  echo "Allocated CPU slots: ${NCPUS:-${PBS_NP:-$(wc -l < "${PBS_NODEFILE}")}}"
+  echo "=========================================="
+}
+
+print_python_summary() {
+  python - <<'PY'
+import os
+import sys
+
+print("========== Python environment summary ==========")
+print("Python:", sys.version.replace("\n", " "))
+print("Executable:", sys.executable)
+for name in ["torch", "numpy", "grid2op", "lightsim2grid", "wandb"]:
+    try:
+        mod = __import__(name)
+        print(f"{name}: {getattr(mod, '__version__', 'unknown')}")
+    except Exception as exc:
+        print(f"{name}: import failed: {exc}")
+print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES", "unset"))
+try:
+    import torch
+    print("CUDA available:", torch.cuda.is_available())
+    print("CUDA device count:", torch.cuda.device_count())
+except Exception:
+    pass
+print("===============================================")
+PY
+}
+
+
+ARGS=(
+  --cuda "${CUDA}"
+  --checkpoint "${CHECKPOINT}"
+  --n-threads "${N_THREADS}"
+  --n-envs "${N_ENVS}"
+  --n-steps "${N_STEPS}"
+  --eval-freq "${EVAL_FREQ}"
+  --time-limit "${PY_TIME_LIMIT}"
+)
+add_arg --env-id "${ENV_ID:-}"
+add_arg --alg "${ALG:-}"
+add_arg --constraints-type "${CONSTRAINTS_TYPE:-}"
+add_arg --use-heuristic "${USE_HEURISTIC:-}"
+add_arg --decentralized "${DECENTRALIZED:-}"
+add_arg --track "${TRACK:-}"
+add_arg --wandb-entity "${WANDB_ENTITY:-}"
+add_arg --wandb-project "${WANDB_PROJECT:-}"
+add_arg --wandb-mode "${WANDB_MODE:-}"
+add_arg --total-timesteps "${TOTAL_TIMESTEPS:-}"
+add_arg --gamma "${GAMMA:-}"
+add_arg --max-grad-norm "${MAX_GRAD_NORM:-}"
+add_arg --update-epochs "${UPDATE_EPOCHS:-}"
+add_arg --n-minibatches "${N_MINIBATCHES:-}"
+add_arg --actor-lr "${ACTOR_LR:-}"
+add_arg --critic-lr "${CRITIC_LR:-}"
+add_arg --clip-coef "${CLIP_COEF:-}"
+add_arg --train-freq "${TRAIN_FREQ:-}"
+add_arg --tg-qnet-freq "${TG_QNET_FREQ:-}"
+add_arg --buffer-size "${BUFFER_SIZE:-}"
+add_arg --batch-size "${BATCH_SIZE:-}"
+add_arg --lr "${LR:-}"
+add_arg --eps-decay-frac "${EPS_DECAY_FRAC:-}"
+add_arg --cost-threshold "${COST_THRESHOLD:-}"
+add_arg --lag-mul "${LAG_MUL:-}"
+add_arg --lag-lr "${LAG_LR:-}"
+if ! has_cli_arg "--seed" "$@"; then
+  add_arg --seed "${SEED:-0}"
+fi
+
+if [ -n "${EXTRA_ARGS:-}" ]; then
+  # Use EXTRA_ARGS for simple extra flags, for example:
+  # EXTRA_ARGS="--difficulty 1 --use-heuristic False"
+  # shellcheck disable=SC2206
+  EXTRA_ARGS_ARRAY=(${EXTRA_ARGS})
+  ARGS+=("${EXTRA_ARGS_ARRAY[@]}")
+fi
+ARGS+=("$@")
+
+JOB_ID="${PBS_JOBID:-local}"
+LOG_DIR="${PROJECT_DIR}/logs"
+STDOUT_LOG="${LOG_DIR}/stdout.${JOB_ID}"
+STDERR_LOG="${LOG_DIR}/stderr.${JOB_ID}"
+
+mkdir -p "${LOG_DIR}" "${PROJECT_DIR}/checkpoint"
+cd "${PROJECT_DIR}"
+
+if [ -d "${VENV_PATH}" ]; then
+  source "${VENV_PATH}/bin/activate"
+elif command -v conda >/dev/null 2>&1; then
+  CONDA_BASE="$(conda info --base)"
+  source "${CONDA_BASE}/etc/profile.d/conda.sh"
+  conda activate "${CONDA_ENV_NAME}"
+else
+  echo "No virtualenv found at ${VENV_PATH}, and conda is not available." >&2
+  echo "Set VENV_PATH or CONDA_ENV_NAME before submitting the job." >&2
+  exit 1
+fi
+
+export PYTHONUNBUFFERED=1
+export MPLCONFIGDIR="${MPLCONFIGDIR:-${PROJECT_DIR}/run_jobs/matplotlib}"
+mkdir -p "${MPLCONFIGDIR}"
+
+echo "Project dir: ${PROJECT_DIR}"
+echo "Started at: $(date)"
+print_resource_summary
+print_python_summary
+echo "Preset: ${PRESET_NAME}"
+echo "Vector envs: ${N_ENVS}, rollout steps: ${N_STEPS}, rollout batch: $((N_ENVS * N_STEPS))"
+echo "Python time limit: ${PY_TIME_LIMIT} minutes"
+echo "Training stdout: ${STDOUT_LOG}"
+echo "Training stderr: ${STDERR_LOG}"
+echo "Command: python -u main.py ${ARGS[*]}"
+
+stdbuf -oL -eL python -u main.py "${ARGS[@]}" > "${STDOUT_LOG}" 2> "${STDERR_LOG}"
+
+echo "Finished at: $(date)"
